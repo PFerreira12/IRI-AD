@@ -272,5 +272,5 @@ E-puck {
   translation 0 -0.45 0.0
   rotation 0 0 1 0
   name "e-puck"
-  controller "<extern>"
+  controller "restaurant_epuck"
 }
