@@ -4,7 +4,7 @@ Week 2 objective: configure the robot sensors and actuators in Webots.
 This controller centralizes the device setup and runs a small validation
 behavior so the wiring can be checked immediately in the simulator.
 """
-
+import random
 from controller import Robot
 
 
@@ -110,6 +110,7 @@ class RestaurantEpuck:
         last_report_time = -1.0
 
         while self.robot.step(self.time_step) != -1:
+                    
             left_front, right_front = self.front_obstacle_levels()
             blocked = max(left_front, right_front) > OBSTACLE_THRESHOLD
 
@@ -118,13 +119,22 @@ class RestaurantEpuck:
             elif blocked:
                 left_speed, right_speed = -TURN_SPEED, TURN_SPEED
             else:
-                left_speed, right_speed = CRUISE_SPEED, CRUISE_SPEED
+                # pequena aleatoriedade
+                if random.random() < 0.02:
+                    left_speed, right_speed = TURN_SPEED, -TURN_SPEED
+                else:
+                    left_speed, right_speed = CRUISE_SPEED, CRUISE_SPEED
 
             self.set_status_leds(blocked)
             self.set_wheel_speeds(left_speed, right_speed)
 
             now = self.robot.getTime()
             if now - last_report_time >= 1.0:
+                
+                if self.lidar:
+                    ranges = self.lidar.getRangeImage()
+                    print("[lidar] first values:", ranges[:5])
+                
                 last_report_time = now
                 odometry = self.wheel_odometry()
                 if odometry is not None:
