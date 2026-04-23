@@ -23,6 +23,9 @@ right_motor.setPosition(float("inf"))
 left_motor.setVelocity(0.0)
 right_motor.setVelocity(0.0)
 
+lidar = robot.getDevice("lidar")
+lidar.enable(TIME_STEP)
+
 proximity_sensors = []
 for index in range(8):
     sensor = robot.getDevice(f"ps{index}")

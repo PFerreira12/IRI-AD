@@ -1,29 +1,22 @@
 #VRML_SIM R2025a utf8
+
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
 
 WorldInfo {
-  basicTimeStep 32
   title "Restaurant - E-puck (S=0.12)"
 }
-
 Viewpoint {
-  orientation -0.3667196291311368 0.6182164211971257 0.6952159162246933 1.412757958172021
-  position -2.435856909452729 -4.491876391067172 7.535209793767923
+  orientation -0.31680462538587995 0.48378854152510686 0.8158329954243836 1.3527373604453559
+  position -0.6736553602729479 -1.710023367385105 1.689515451046633
 }
-
 TexturedBackground {
   texture "dusk"
 }
-
 TexturedBackgroundLight {
   texture "twilight_cloudy_empty"
 }
-
-# ─────────────────────────────────────────────
-# VISUAL ONLY — CadShape (sem colisão)
-# ─────────────────────────────────────────────
 Pose {
   rotation 1 0 0 1.5708
   children [
@@ -34,11 +27,6 @@ Pose {
     }
   ]
 }
-
-# ─────────────────────────────────────────────
-# CHÃO SÓLIDO
-# sala escalada: 11*0.12=1.32 x 9.5*0.12=1.14 m
-# ─────────────────────────────────────────────
 Solid {
   translation 0 0 -0.0036
   name "floor"
@@ -46,12 +34,6 @@ Solid {
     size 1.32 1.14 0.0072
   }
 }
-
-# ─────────────────────────────────────────────
-# PAREDES  (espessura 0.12*0.12=0.0144, altura 1.5*0.12=0.18)
-# ─────────────────────────────────────────────
-
-# Parede de trás  (y+)
 Solid {
   translation 0 0.57 0.09
   name "wall_back"
@@ -59,8 +41,6 @@ Solid {
     size 1.32 0.0144 0.18
   }
 }
-
-# Parede da frente (y-)
 Solid {
   translation 0 -0.57 0.09
   name "wall_front"
@@ -68,8 +48,6 @@ Solid {
     size 1.32 0.0144 0.18
   }
 }
-
-# Parede esquerda (x-)
 Solid {
   translation -0.66 0 0.09
   name "wall_left"
@@ -77,8 +55,6 @@ Solid {
     size 0.0144 1.14 0.18
   }
 }
-
-# Parede direita (x+)
 Solid {
   translation 0.66 0 0.09
   name "wall_right"
@@ -86,11 +62,6 @@ Solid {
     size 0.0144 1.14 0.18
   }
 }
-
-# ─────────────────────────────────────────────
-# BALCÃO DO ROBÔ
-# original: pos(0, -4.05, 0.45) scale(3.2, 0.55, 0.9)  *0.12
-# ─────────────────────────────────────────────
 Solid {
   translation 0 -0.486 0.054
   name "counter"
@@ -98,17 +69,6 @@ Solid {
     size 0.384 0.066 0.108
   }
 }
-
-# ─────────────────────────────────────────────
-# MESAS (tampo + perna)
-# tampo original: scale(1.05,1.05,0.12) *0.12 = (0.126,0.126,0.0144)
-# perna original: radius=0.08 depth=0.44  *0.12 = r=0.0096 d=0.0528
-# Usamos uma caixa única por mesa cobrindo tampo+perna para simplificar
-# altura total ~0.45*0.12 = 0.054m  centro a 0.027m
-# ─────────────────────────────────────────────
-
-# Posições originais * 0.12
-# T1: (-3.6,-2.6) -> (-0.432,-0.312)
 Solid {
   translation -0.432 -0.312 0.027
   name "table_1"
@@ -116,8 +76,6 @@ Solid {
     size 0.126 0.126 0.054
   }
 }
-
-# T2: (-1.4,-1.0) -> (-0.168,-0.12)
 Solid {
   translation -0.168 -0.12 0.027
   name "table_2"
@@ -125,8 +83,6 @@ Solid {
     size 0.126 0.126 0.054
   }
 }
-
-# T3: (-3.4, 1.7) -> (-0.408, 0.204)
 Solid {
   translation -0.408 0.204 0.027
   name "table_3"
@@ -134,8 +90,6 @@ Solid {
     size 0.126 0.126 0.054
   }
 }
-
-# T4: (3.3,-2.1) -> (0.396,-0.252)
 Solid {
   translation 0.396 -0.252 0.027
   name "table_4"
@@ -143,8 +97,6 @@ Solid {
     size 0.126 0.126 0.054
   }
 }
-
-# T5: (1.2, 0.7) -> (0.144, 0.084)
 Solid {
   translation 0.144 0.084 0.027
   name "table_5"
@@ -152,8 +104,6 @@ Solid {
     size 0.126 0.126 0.054
   }
 }
-
-# T6: (3.6, 2.8) -> (0.432, 0.336)
 Solid {
   translation 0.432 0.336 0.027
   name "table_6"
@@ -161,54 +111,174 @@ Solid {
     size 0.126 0.126 0.054
   }
 }
-
-# ─────────────────────────────────────────────
-# CADEIRAS  (4 por mesa)
-# seat original scale(0.42,0.42,0.18)*0.12=(0.0504,0.0504,0.0216)
-# offset original: 0.82 -> 0.0984
-# centro seat original z=0.25 -> 0.03
-# ─────────────────────────────────────────────
-
-# --- Cadeiras Mesa 1 (-0.432, -0.312) ---
-Solid { translation -0.432 -0.2136 0.03 name "chair_1_1" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.432 -0.4104 0.03 name "chair_1_2" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.3336 -0.312  0.03 name "chair_1_3" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.5304 -0.312  0.03 name "chair_1_4" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-
-# --- Cadeiras Mesa 2 (-0.168, -0.12) ---
-Solid { translation -0.168 -0.0216 0.03 name "chair_2_1" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.168 -0.2184 0.03 name "chair_2_2" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.0696 -0.12   0.03 name "chair_2_3" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.2664 -0.12   0.03 name "chair_2_4" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-
-# --- Cadeiras Mesa 3 (-0.408, 0.204) ---
-Solid { translation -0.408  0.3024 0.03 name "chair_3_1" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.408  0.1056 0.03 name "chair_3_2" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.3096  0.204  0.03 name "chair_3_3" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation -0.5064  0.204  0.03 name "chair_3_4" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-
-# --- Cadeiras Mesa 4 (0.396, -0.252) ---
-Solid { translation  0.396 -0.1536 0.03 name "chair_4_1" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.396 -0.3504 0.03 name "chair_4_2" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.4944 -0.252  0.03 name "chair_4_3" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.2976 -0.252  0.03 name "chair_4_4" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-
-# --- Cadeiras Mesa 5 (0.144, 0.084) ---
-Solid { translation  0.144  0.1824 0.03 name "chair_5_1" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.144 -0.0144 0.03 name "chair_5_2" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.2424  0.084  0.03 name "chair_5_3" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.0456  0.084  0.03 name "chair_5_4" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-
-# --- Cadeiras Mesa 6 (0.432, 0.336) ---
-Solid { translation  0.432  0.4344 0.03 name "chair_6_1" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.432  0.2376 0.03 name "chair_6_2" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.5304  0.336  0.03 name "chair_6_3" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-Solid { translation  0.3336  0.336  0.03 name "chair_6_4" boundingObject Box { size 0.0504 0.0504 0.0216 } }
-
-# ─────────────────────────────────────────────
-# DIVISÓRIAS
-# original scale(0.28,1.25,0.7)*0.12=(0.0336,0.15,0.084)
-# ─────────────────────────────────────────────
+Solid {
+  translation -0.432 -0.2136 0.03
+  name "chair_1_1"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.432 -0.4104 0.03
+  name "chair_1_2"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.3336 -0.312 0.03
+  name "chair_1_3"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.5304 -0.312 0.03
+  name "chair_1_4"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.168 -0.0216 0.03
+  name "chair_2_1"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.168 -0.2184 0.03
+  name "chair_2_2"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.0696 -0.12 0.03
+  name "chair_2_3"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.2664 -0.12 0.03
+  name "chair_2_4"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.408 0.3024 0.03
+  name "chair_3_1"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.408 0.1056 0.03
+  name "chair_3_2"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.3096 0.204 0.03
+  name "chair_3_3"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation -0.5064 0.204 0.03
+  name "chair_3_4"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.396 -0.1536 0.03
+  name "chair_4_1"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.396 -0.3504 0.03
+  name "chair_4_2"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.4944 -0.252 0.03
+  name "chair_4_3"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.2976 -0.252 0.03
+  name "chair_4_4"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.144 0.1824 0.03
+  name "chair_5_1"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.144 -0.0144 0.03
+  name "chair_5_2"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.2424 0.084 0.03
+  name "chair_5_3"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.0456 0.084 0.03
+  name "chair_5_4"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.432 0.4344 0.03
+  name "chair_6_1"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.432 0.2376 0.03
+  name "chair_6_2"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.5304 0.336 0.03
+  name "chair_6_3"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
+Solid {
+  translation 0.3336 0.336 0.03
+  name "chair_6_4"
+  boundingObject Box {
+    size 0.0504 0.0504 0.0216
+  }
+}
 Solid {
   translation -0.072 -0.258 0.042
   name "divider_1"
@@ -230,47 +300,67 @@ Solid {
     size 0.0336 0.162 0.084
   }
 }
-
-# ─────────────────────────────────────────────
-# PLANTAS CENTRAIS (cilindros — pot + folhas juntos)
-# pot original: radius=0.22 depth=0.36  *0.12 -> r=0.0264 d=0.0432
-# leaves: radius=0.34 depth=0.55 *0.12 -> r=0.0408 d=0.066
-# Usamos o raio das folhas para a caixa de colisão
-# ─────────────────────────────────────────────
 Solid {
   translation 0.018 -0.126 0.036
   name "plant_central_1"
   boundingObject Cylinder {
-    radius 0.0408
     height 0.108
+    radius 0.0408
   }
 }
 Solid {
   translation -0.006 0.126 0.036
   name "plant_central_2"
   boundingObject Cylinder {
-    radius 0.0408
     height 0.108
+    radius 0.0408
   }
 }
-
-# ─────────────────────────────────────────────
-# PLANTAS DOS CANTOS
-# posições originais * 0.12:
-# (-4.8,4.0)->(-0.576,0.48)  (4.8,4.0)->(0.576,0.48)
-# (-4.8,-3.6)->(-0.576,-0.432)  (4.8,-3.6)->(0.576,-0.432)
-# ─────────────────────────────────────────────
-Solid { translation -0.576  0.48  0.036 name "corner_plant_1" boundingObject Cylinder { radius 0.042 height 0.108 } }
-Solid { translation  0.576  0.48  0.036 name "corner_plant_2" boundingObject Cylinder { radius 0.042 height 0.108 } }
-Solid { translation -0.576 -0.432 0.036 name "corner_plant_3" boundingObject Cylinder { radius 0.042 height 0.108 } }
-Solid { translation  0.576 -0.432 0.036 name "corner_plant_4" boundingObject Cylinder { radius 0.042 height 0.108 } }
-
-# ─────────────────────────────────────────────
-# E-PUCK
-# ─────────────────────────────────────────────
+Solid {
+  translation -0.576 0.48 0.036
+  name "corner_plant_1"
+  boundingObject Cylinder {
+    height 0.108
+    radius 0.042
+  }
+}
+Solid {
+  translation 0.576 0.48 0.036
+  name "corner_plant_2"
+  boundingObject Cylinder {
+    height 0.108
+    radius 0.042
+  }
+}
+Solid {
+  translation -0.576 -0.432 0.036
+  name "corner_plant_3"
+  boundingObject Cylinder {
+    height 0.108
+    radius 0.042
+  }
+}
+Solid {
+  translation 0.576 -0.432 0.036
+  name "corner_plant_4"
+  boundingObject Cylinder {
+    height 0.108
+    radius 0.042
+  }
+}
 E-puck {
   translation 0 -0.45 0.0
   rotation 0 0 1 0
   name "e-puck"
   controller "restaurant_epuck"
+
+  turretSlot [
+    Lidar {
+      name "lidar"
+      horizontalResolution 360
+      numberOfLayers 1
+      fieldOfView 6.28
+      maxRange 2.0
+    }
+  ]
 }
