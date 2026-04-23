@@ -5,7 +5,7 @@ This controller centralizes the device setup and runs a small validation
 behavior so the wiring can be checked immediately in the simulator.
 """
 import random
-from controller import Robot
+from controller import Robot, Receiver
 
 
 TIME_STEP = 32
@@ -40,6 +40,23 @@ class RestaurantEpuck:
             for index in range(10)
             if (led := self._optional_device(f"led{index}")) is not None
         ]
+
+        # Requests (Receiver)
+        self.receiver = self._optional_device("receiver")
+        if self.receiver is not None:
+            self.receiver.enable(self.time_step)
+
+        self.TABLES = {
+            "T1": (-0.432, -0.312),
+            "T2": (-0.168, -0.120),
+            "T3": (-0.408, 0.204),
+            "T4": (0.396, -0.252),
+            "T5": (0.144, 0.084),
+            "T6": (0.432, 0.336),
+        }
+
+        self.target_id = None
+        self.target_pos = None
 
         self._print_configuration_summary()
 
@@ -106,10 +123,32 @@ class RestaurantEpuck:
         right_distance = self.right_encoder.getValue() * WHEEL_RADIUS
         return left_distance, right_distance
 
+    def process_requests(self):
+        if self.receiver is None:
+            return
+
+        while self.receiver.getQueueLength() > 0:
+            msg = self.receiver.getData().decode("utf-8").strip()
+            self.receiver.nextPacket()
+
+            parts = msg.split()
+            if len(parts) == 2 and parts[0] == "REQ":
+                tid = parts[1]
+                if tid in self.TABLES:
+                    self.target_id = tid
+                    self.target_pos = self.TABLES[tid]
+                    print(f"[restaurant_epuck] NEW REQUEST: {self.target_id} -> {self.target_pos}")
+                else:
+                    print(f"[restaurant_epuck] Unknown table id: {tid}")
+            else:
+                print(f"[restaurant_epuck] Unknown message: {msg}")
+
     def run_validation_behavior(self):
         last_report_time = -1.0
 
         while self.robot.step(self.time_step) != -1:
+
+            self.process_requests()
                     
             left_front, right_front = self.front_obstacle_levels()
             blocked = max(left_front, right_front) > OBSTACLE_THRESHOLD
@@ -142,6 +181,10 @@ class RestaurantEpuck:
                         "[restaurant_epuck] odometry left/right = "
                         f"{odometry[0]:.3f} m / {odometry[1]:.3f} m"
                     )
+
+                if self.target_id is not None:
+                    print(f"[restaurant_epuck] current target = {self.target_id} at {self.target_pos}")
+
 
 
 if __name__ == "__main__":
