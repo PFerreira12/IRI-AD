@@ -8,8 +8,8 @@ WorldInfo {
   title "Restaurant - E-puck (S=0.12)"
 }
 Viewpoint {
-  orientation 0.31023978161995996 0.1612448217188474 -0.9368838697348016 2.2352958191183525
-  position 0.783351562692924 0.5293608839990311 0.7255488158968659
+  orientation 0.2838477927938063 0.11479546073401099 -0.9519729159597718 2.406560286820924
+  position 1.3505041687138664 0.8837875372419176 1.1099094229037414
 }
 TexturedBackground {
   texture "dusk"
@@ -369,7 +369,6 @@ DEF TABLE_LAMP_3 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location -0.408 0.204 0.18
-  on FALSE
   radius 0.24
 }
 DEF TABLE_LAMP_4 PointLight {
@@ -403,11 +402,18 @@ Robot {
   children [
     Emitter {
       name "emitter"
+      channel 1
+      range -1
+    }
+    Receiver {
+      name "receiver"
+      channel 2
     }
   ]
 }
 E-puck {
   translation 0 -0.39 0
+  supervisor TRUE
   controller "restaurant_epuck"
   turretSlot [
     Lidar {
@@ -423,5 +429,11 @@ E-puck {
   }
   receiver Receiver {
     name "receiver"
+    channel 1
+  }
+  emitter Emitter {
+    name "emitter"
+    channel 2
+    range -1
   }
 }
