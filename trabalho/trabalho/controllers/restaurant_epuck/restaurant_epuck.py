@@ -1,23 +1,50 @@
 """Controller comum para o e-puck do restaurante.
 
-Este ficheiro prepara a gestao de pedidos e estados do robo. A navegacao real
-por A* (EXP1) e por mapeamento incremental/SLAM simplificado (EXP2) fica para
-uma fase seguinte.
+Este ficheiro gere pedidos, estados do robo, pose estimada e movimento.
+Na EXP2, usa mapa incremental + A* quando existe caminho, e navegação reativa
+apenas como fallback/emergência.
 """
+
 import math
 from controller import Supervisor, Receiver, Emitter
+from navigation_exp2 import NavigationExp2
 
 
 TIME_STEP = 32
 MAX_SPEED = 6.28
+
 CRUISE_SPEED = 3.2
 TURN_SPEED = 2.4
-OBSTACLE_THRESHOLD = 80.0
+
+# Navegação reativa fallback.
+NAV_WARNING_THRESHOLD = 78.0
+NAV_OBSTACLE_THRESHOLD = 85.0
+
+# Proteção de odometria.
+ODOMETRY_BLOCK_THRESHOLD = 78.0
+
+# Lidar para fallback reativo.
+LIDAR_NAV_MIN_VALID_DISTANCE = 0.06
+LIDAR_CLEAR_DISTANCE = 0.18
+LIDAR_CAUTION_DISTANCE = 0.25
+LIDAR_FRONT_DEGREES = 30
+LIDAR_SIDE_DEGREES = 75
+DEFAULT_LIDAR_FOV = 6.28
+
+# Seguimento de A*.
+WAYPOINT_LOOKAHEAD_INDEX = 6
+WAYPOINT_REACHED_RADIUS = 0.04
+ANGLE_TOLERANCE = 0.25
+PATH_FORWARD_SPEED = 1.8
+PATH_TURN_SPEED = 1.2
+
+# Durante path following, só abandona o caminho se houver emergência real.
+PATH_EMERGENCY_LIDAR_DISTANCE = 0.08
 
 WHEEL_RADIUS = 0.0205
 AXLE_LENGTH = 0.052
 
-EXPERIMENT_MODE = "EXP1"
+EXPERIMENT_MODE = "EXP2"
 SERVICE_TIME = 2.0
 REQUEST_CHANNEL = 1
 DONE_CHANNEL = 2
@@ -67,7 +94,6 @@ class RestaurantEpuck:
         if self.emitter is not None:
             self.emitter.setChannel(DONE_CHANNEL)
 
-        # Centros reais das mesas no mundo Webots.
         self.TABLES = {
             "T1": (-0.432, -0.312),
             "T2": (-0.168, -0.120),
@@ -77,9 +103,6 @@ class RestaurantEpuck:
             "T6": (0.432, 0.336),
         }
 
-        # Área de chegada de cada mesa.
-        # Cada mesa é representada pelo centro da mesa + coordenadas das cadeiras.
-        # O robô não precisa de atingir exatamente o centro da mesa.
         self.TABLE_REACH_POINTS = {
             "T1": [
                 (-0.432, -0.312),
@@ -125,12 +148,8 @@ class RestaurantEpuck:
             ],
         }
 
-        # Posição inicial/base do robô.
-        # O balcão está em (0.0, -0.486), mas o robô começa à frente dele.
         self.base_pos = (0.0, -0.39)
 
-        # Raios para considerar chegada.
-        # Para mesas usamos uma área maior, porque o robô pode chegar por vários lados.
         self.table_arrival_radius = 0.14
         self.base_arrival_radius = 0.08
 
@@ -139,19 +158,23 @@ class RestaurantEpuck:
         self.target_pos = None
         self.last_served_id = None
         self.service_start_time = None
-
-        # Fila FIFO de pedidos recebidos enquanto o robô está ocupado.
         self.request_queue = []
 
-        # Pose estimada para EXP2.
         self.estimated_x = self.base_pos[0]
         self.estimated_y = self.base_pos[1]
         self.estimated_theta = 0.0
+
+        self.initial_compass_heading = None
+        if self.compass is not None:
+            self.initial_compass_heading = self.get_raw_compass_heading()
+
         self.previous_left_encoder = None
         self.previous_right_encoder = None
 
         self.last_encoder_warning_time = -999.0
         self.last_report_time = -1.0
+
+        self.navigation_exp2 = NavigationExp2(self)
 
         self._print_configuration_summary()
 
@@ -211,6 +234,13 @@ class RestaurantEpuck:
         if missing:
             print(f"[restaurant_epuck] Optional devices not present in this robot: {missing}")
 
+    def is_valid_number(self, value):
+        return (
+            value is not None
+            and not math.isnan(value)
+            and not math.isinf(value)
+        )
+
     def set_wheel_speeds(self, left_speed, right_speed):
         left_speed = max(-MAX_SPEED, min(MAX_SPEED, left_speed))
         right_speed = max(-MAX_SPEED, min(MAX_SPEED, right_speed))
@@ -231,11 +261,137 @@ class RestaurantEpuck:
     def front_obstacle_levels(self):
         values = self.proximity_values()
 
-        # Sensores frontais do e-puck.
         left_front = max(values[5], values[6], values[7])
         right_front = max(values[0], values[1], values[2])
 
         return left_front, right_front
+
+    def obstacle_level(self):
+        return max(self.proximity_values())
+
+    def get_lidar_ranges(self):
+        if self.lidar is None:
+            return None
+
+        ranges = self.lidar.getRangeImage()
+
+        if ranges is None or len(ranges) == 0:
+            return None
+
+        return ranges
+
+    def get_lidar_fov(self):
+        if self.lidar is None:
+            return DEFAULT_LIDAR_FOV
+
+        try:
+            fov = self.lidar.getFov()
+        except Exception:
+            fov = DEFAULT_LIDAR_FOV
+
+        if not self.is_valid_number(fov) or fov <= 0:
+            fov = DEFAULT_LIDAR_FOV
+
+        return fov
+
+    def lidar_sector_min_distance(self, start_angle_deg, end_angle_deg):
+        ranges = self.get_lidar_ranges()
+
+        if ranges is None:
+            return None
+
+        n = len(ranges)
+        fov = self.get_lidar_fov()
+
+        start_rad = math.radians(start_angle_deg)
+        end_rad = math.radians(end_angle_deg)
+
+        if start_rad > end_rad:
+            start_rad, end_rad = end_rad, start_rad
+
+        min_distance = None
+
+        for index, distance in enumerate(ranges):
+            if not self.is_valid_number(distance):
+                continue
+
+            if distance <= LIDAR_NAV_MIN_VALID_DISTANCE:
+                continue
+
+            rel_angle = -fov / 2.0 + index * fov / max(1, n - 1)
+
+            if start_rad <= rel_angle <= end_rad:
+                if min_distance is None or distance < min_distance:
+                    min_distance = distance
+
+        return min_distance
+
+    def lidar_navigation_info(self):
+        if self.lidar is None:
+            return None
+
+        front_min = self.lidar_sector_min_distance(
+            -LIDAR_FRONT_DEGREES,
+            LIDAR_FRONT_DEGREES,
+        )
+
+        left_min = self.lidar_sector_min_distance(
+            -LIDAR_SIDE_DEGREES,
+            -LIDAR_FRONT_DEGREES,
+        )
+
+        right_min = self.lidar_sector_min_distance(
+            LIDAR_FRONT_DEGREES,
+            LIDAR_SIDE_DEGREES,
+        )
+
+        return {
+            "front": front_min,
+            "left": left_min,
+            "right": right_min,
+        }
+
+    def normalize_angle(self, angle):
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+
+        return angle
+
+    def get_raw_compass_heading(self):
+        if self.compass is None:
+            return None
+
+        values = self.compass.getValues()
+
+        if values is None or len(values) < 2:
+            return None
+
+        if (
+            math.isnan(values[0])
+            or math.isnan(values[1])
+            or math.isinf(values[0])
+            or math.isinf(values[1])
+        ):
+            return None
+
+        return math.atan2(values[0], values[1])
+
+    def get_robot_heading(self):
+        if self.compass is None:
+            return self.estimated_theta
+
+        raw_heading = self.get_raw_compass_heading()
+
+        if raw_heading is None:
+            return self.estimated_theta
+
+        if self.initial_compass_heading is None:
+            self.initial_compass_heading = raw_heading
+
+        return self.normalize_angle(raw_heading - self.initial_compass_heading)
 
     def update_odometry(self):
         if self.left_encoder is None or self.right_encoder is None:
@@ -244,6 +400,9 @@ class RestaurantEpuck:
             if now - self.last_encoder_warning_time >= 5.0:
                 print("[restaurant_epuck] wheel encoders unavailable; keeping last estimated pose")
                 self.last_encoder_warning_time = now
+
+            if self.compass is not None:
+                self.estimated_theta = self.get_robot_heading()
 
             return
 
@@ -262,9 +421,22 @@ class RestaurantEpuck:
         self.previous_right_encoder = right_value
 
         delta_center = (delta_left + delta_right) / 2.0
-        delta_theta = (delta_right - delta_left) / AXLE_LENGTH
+        delta_theta_wheels = (delta_right - delta_left) / AXLE_LENGTH
 
-        self.estimated_theta += delta_theta
+        if self.compass is not None:
+            self.estimated_theta = self.get_robot_heading()
+        else:
+            self.estimated_theta += delta_theta_wheels
+
+        left_front, right_front = self.front_obstacle_levels()
+        front_blocked = max(left_front, right_front) > ODOMETRY_BLOCK_THRESHOLD
+        any_obstacle_blocked = self.obstacle_level() > ODOMETRY_BLOCK_THRESHOLD
+
+        is_forward_motion = delta_center > 0.0001
+
+        if (front_blocked or any_obstacle_blocked) and is_forward_motion:
+            delta_center = 0.0
+
         self.estimated_x += delta_center * math.cos(self.estimated_theta)
         self.estimated_y += delta_center * math.sin(self.estimated_theta)
 
@@ -278,8 +450,6 @@ class RestaurantEpuck:
         raise ValueError(f"Unsupported experiment mode: {self.experiment_mode}")
 
     def get_ground_truth_position(self):
-        # Ground truth do simulador: útil para validação/EXP1.
-        # Em EXP2, a fonte principal deve ser get_estimated_position().
         try:
             node = self.robot.getSelf()
 
@@ -288,7 +458,6 @@ class RestaurantEpuck:
 
             position = node.getPosition()
 
-            # Neste mundo, o plano horizontal usa X e Y.
             return position[0], position[1]
 
         except Exception as exc:
@@ -367,11 +536,7 @@ class RestaurantEpuck:
             return False
 
         self.target_id = table_id
-
-        # O target_pos continua a ser o centro da mesa por agora.
-        # A deteção de chegada usa a área da mesa e cadeiras.
         self.target_pos = self.TABLES[table_id]
-
         self.state = STATE_GOING_TO_TABLE
 
         print(
@@ -382,25 +547,151 @@ class RestaurantEpuck:
         return True
 
     def navigation_step(self, target_pos):
-        # TODO EXP1: substituir por A* sobre mapa/grelha conhecido.
-        # TODO EXP2: substituir por mapeamento incremental + A* no mapa conhecido.
-        #
-        # Este comportamento ainda é apenas reativo:
-        # anda em frente e roda quando deteta obstáculo.
+        """Fallback reativo quando não há caminho A* utilizável."""
+        left_front, right_front = self.front_obstacle_levels()
+        ps_max_front = max(left_front, right_front)
+
+        lidar_info = self.lidar_navigation_info()
+
+        if ps_max_front > NAV_OBSTACLE_THRESHOLD:
+            if left_front >= right_front:
+                left_speed = TURN_SPEED
+                right_speed = -TURN_SPEED
+            else:
+                left_speed = -TURN_SPEED
+                right_speed = TURN_SPEED
+
+            self.set_status_leds(True)
+            self.set_wheel_speeds(left_speed, right_speed)
+            return
+
+        if lidar_info is not None:
+            front = lidar_info["front"]
+            left = lidar_info["left"]
+            right = lidar_info["right"]
+
+            front_blocked = front is not None and front < LIDAR_CLEAR_DISTANCE
+            front_caution = front is not None and front < LIDAR_CAUTION_DISTANCE
+
+            if front_blocked:
+                left_space = left if left is not None else 0.0
+                right_space = right if right is not None else 0.0
+
+                if left_space >= right_space:
+                    left_speed = -TURN_SPEED
+                    right_speed = TURN_SPEED
+                else:
+                    left_speed = TURN_SPEED
+                    right_speed = -TURN_SPEED
+
+                self.set_status_leds(True)
+                self.set_wheel_speeds(left_speed, right_speed)
+                return
+
+            if front_caution:
+                left_space = left if left is not None else 0.0
+                right_space = right if right is not None else 0.0
+
+                slow_speed = CRUISE_SPEED * 0.45
+                steer = 0.8
+
+                if left_space >= right_space:
+                    left_speed = slow_speed - steer
+                    right_speed = slow_speed + steer
+                else:
+                    left_speed = slow_speed + steer
+                    right_speed = slow_speed - steer
+
+                self.set_status_leds(True)
+                self.set_wheel_speeds(left_speed, right_speed)
+                return
+
+        if ps_max_front > NAV_WARNING_THRESHOLD:
+            slow_speed = CRUISE_SPEED * 0.55
+            steer = 0.7
+
+            if left_front >= right_front:
+                left_speed = slow_speed + steer
+                right_speed = slow_speed - steer
+            else:
+                left_speed = slow_speed - steer
+                right_speed = slow_speed + steer
+
+            self.set_status_leds(True)
+            self.set_wheel_speeds(left_speed, right_speed)
+            return
+
+        self.set_status_leds(False)
+        self.set_wheel_speeds(CRUISE_SPEED, CRUISE_SPEED)
+
+    def follow_path_step(self, path, fallback_target):
+        if not path or len(path) < 2:
+            self.navigation_step(fallback_target)
+            return
+
+        waypoint_index = min(WAYPOINT_LOOKAHEAD_INDEX, len(path) - 1)
+        waypoint_cell = path[waypoint_index]
+
+        waypoint_pos = self.navigation_exp2.grid_to_world(
+            waypoint_cell[0],
+            waypoint_cell[1],
+        )
+
+        current_pos = self.get_robot_position()
+
+        if current_pos is None or waypoint_pos is None:
+            self.navigation_step(fallback_target)
+            return
+
+        robot_x, robot_y = current_pos
+        waypoint_x, waypoint_y = waypoint_pos
+
+        dx = waypoint_x - robot_x
+        dy = waypoint_y - robot_y
+
+        distance = math.hypot(dx, dy)
+
+        target_angle = math.atan2(dy, dx)
+        heading = self.get_robot_heading()
+        angle_error = self.normalize_angle(target_angle - heading)
 
         left_front, right_front = self.front_obstacle_levels()
-        blocked = max(left_front, right_front) > OBSTACLE_THRESHOLD
+        ps_max_front = max(left_front, right_front)
 
-        if blocked and left_front >= right_front:
-            left_speed, right_speed = TURN_SPEED, -TURN_SPEED
+        # Só abandona o A* em emergência real.
+        if ps_max_front > NAV_OBSTACLE_THRESHOLD:
+            self.navigation_step(fallback_target)
+            return
 
-        elif blocked:
-            left_speed, right_speed = -TURN_SPEED, TURN_SPEED
+        lidar_info = self.lidar_navigation_info()
+        if lidar_info is not None:
+            front = lidar_info["front"]
+            if front is not None and front < PATH_EMERGENCY_LIDAR_DISTANCE:
+                self.navigation_step(fallback_target)
+                return
 
-        else:
-            left_speed, right_speed = CRUISE_SPEED, CRUISE_SPEED
+        if distance < WAYPOINT_REACHED_RADIUS:
+            self.set_wheel_speeds(PATH_FORWARD_SPEED, PATH_FORWARD_SPEED)
+            return
 
-        self.set_status_leds(blocked)
+        if abs(angle_error) > ANGLE_TOLERANCE:
+            if angle_error > 0:
+                left_speed = -PATH_TURN_SPEED
+                right_speed = PATH_TURN_SPEED
+            else:
+                left_speed = PATH_TURN_SPEED
+                right_speed = -PATH_TURN_SPEED
+
+            self.set_status_leds(True)
+            self.set_wheel_speeds(left_speed, right_speed)
+            return
+
+        correction = max(-1.0, min(1.0, angle_error * 2.0))
+
+        left_speed = PATH_FORWARD_SPEED - correction
+        right_speed = PATH_FORWARD_SPEED + correction
+
+        self.set_status_leds(False)
         self.set_wheel_speeds(left_speed, right_speed)
 
     def process_requests(self):
@@ -466,6 +757,32 @@ class RestaurantEpuck:
 
         left_front, right_front = self.front_obstacle_levels()
 
+        heading = self.get_robot_heading()
+        target_angle = None
+        angle_error = None
+
+        if self.target_pos is not None:
+            current_pos = self.get_robot_position()
+            if current_pos is not None:
+                dx = self.target_pos[0] - current_pos[0]
+                dy = self.target_pos[1] - current_pos[1]
+                target_angle = math.atan2(dy, dx)
+                angle_error = self.normalize_angle(target_angle - heading)
+
+        target_angle_text = f"{target_angle:.2f}" if target_angle is not None else "None"
+        angle_error_text = f"{angle_error:.2f}" if angle_error is not None else "None"
+
+        ground_truth_pos = self.get_ground_truth_position()
+        position_error = None
+
+        if position is not None and ground_truth_pos is not None:
+            position_error = math.hypot(
+                ground_truth_pos[0] - position[0],
+                ground_truth_pos[1] - position[1],
+            )
+
+        lidar_info = self.lidar_navigation_info()
+
         print(
             "[restaurant_epuck] status "
             f"mode={self.experiment_mode} "
@@ -476,7 +793,14 @@ class RestaurantEpuck:
             f"pos={position} "
             f"table_dist={table_distance} "
             f"base_dist={base_distance} "
-            f"front=({left_front:.1f}, {right_front:.1f})"
+            f"front=({left_front:.1f}, {right_front:.1f}) "
+            f"obs={self.obstacle_level():.1f} "
+            f"lidar={lidar_info} "
+            f"heading={heading:.2f} "
+            f"target_angle={target_angle_text} "
+            f"angle_error={angle_error_text} "
+            f"gt_pos={ground_truth_pos} "
+            f"pos_error={position_error} "
         )
 
         self.last_report_time = now
@@ -486,6 +810,10 @@ class RestaurantEpuck:
             self.process_requests()
             self.update_odometry()
 
+            nav_result = None
+            if self.experiment_mode == "EXP2":
+                nav_result = self.navigation_exp2.step(self.target_pos)
+
             now = self.robot.getTime()
 
             if self.state == STATE_IDLE:
@@ -493,7 +821,14 @@ class RestaurantEpuck:
                 self.set_status_leds(False)
 
             elif self.state == STATE_GOING_TO_TABLE:
-                self.navigation_step(self.target_pos)
+                if (
+                    self.experiment_mode == "EXP2"
+                    and nav_result is not None
+                    and nav_result.get("path_length", 0) > 1
+                ):
+                    self.follow_path_step(nav_result["path"], self.target_pos)
+                else:
+                    self.navigation_step(self.target_pos)
 
                 if self.has_reached_table_area(self.target_id):
                     self.stop()
@@ -525,7 +860,14 @@ class RestaurantEpuck:
                     print(f"[restaurant_epuck] returning to base from {completed_table}")
 
             elif self.state == STATE_RETURNING_TO_BASE:
-                self.navigation_step(self.base_pos)
+                if (
+                    self.experiment_mode == "EXP2"
+                    and nav_result is not None
+                    and nav_result.get("path_length", 0) > 1
+                ):
+                    self.follow_path_step(nav_result["path"], self.base_pos)
+                else:
+                    self.navigation_step(self.base_pos)
 
                 if self.has_arrived(self.base_pos, self.base_arrival_radius):
                     self.stop()

@@ -369,6 +369,7 @@ DEF TABLE_LAMP_3 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location -0.408 0.204 0.18
+  on FALSE
   radius 0.24
 }
 DEF TABLE_LAMP_4 PointLight {
@@ -384,7 +385,6 @@ DEF TABLE_LAMP_5 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location 0.144 0.084 0.18
-  on FALSE
   radius 0.24
 }
 DEF TABLE_LAMP_6 PointLight {
@@ -397,43 +397,31 @@ DEF TABLE_LAMP_6 PointLight {
 }
 Robot {
   translation 0 0 -1
-  supervisor TRUE
-  controller "requests_manager"
   children [
     Emitter {
-      name "emitter"
       channel 1
-      range -1
     }
     Receiver {
-      name "receiver"
       channel 2
     }
   ]
+  controller "requests_manager"
+  supervisor TRUE
 }
 E-puck {
-  translation 0 -0.39 0
-  supervisor TRUE
+  translation 0 -0.39000000000016044 -5.71008001399656e-05
+  rotation 1 0 0 3.1795174338369594e-06
   controller "restaurant_epuck"
+  supervisor TRUE
+  emitter_channel 2
   turretSlot [
+    Compass {
+    }
     Lidar {
-      name "lidar"
       horizontalResolution 360
       fieldOfView 6.28
       numberOfLayers 1
       maxRange 2
     }
   ]
-  compass Compass {
-    name "compass"
-  }
-  receiver Receiver {
-    name "receiver"
-    channel 1
-  }
-  emitter Emitter {
-    name "emitter"
-    channel 2
-    range -1
-  }
 }
