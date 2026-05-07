@@ -7,7 +7,12 @@ apenas como fallback/emergência.
 
 import math
 from controller import Supervisor, Receiver, Emitter
+
 from navigation_exp2 import NavigationExp2
+
+from navigation_exp1 import NavigationEXP1
+from a_star import AStar
+from known_map import KnownMap
 
 
 TIME_STEP = 32
@@ -76,8 +81,6 @@ class RestaurantEpuck:
 
         self.lidar = self._optional_sensor("lidar")
         self.compass = self._optional_sensor("compass")
-        self.camera = self._optional_sensor("camera")
-        self.accelerometer = self._optional_sensor("accelerometer")
 
         self.leds = [
             led
@@ -174,6 +177,10 @@ class RestaurantEpuck:
         self.last_encoder_warning_time = -999.0
         self.last_report_time = -1.0
 
+        self.known_map = KnownMap()
+        self.planner = AStar(self.known_map)
+        self.navigator = NavigationEXP1(self.known_map, self.planner)
+
         self.navigation_exp2 = NavigationExp2(self)
 
         self._print_configuration_summary()
@@ -205,8 +212,6 @@ class RestaurantEpuck:
         optional_devices = {
             "lidar": self.lidar is not None,
             "compass": self.compass is not None,
-            "camera": self.camera is not None,
-            "accelerometer": self.accelerometer is not None,
             "wheel_encoders": self.left_encoder is not None and self.right_encoder is not None,
             "receiver": self.receiver is not None,
             "emitter": self.emitter is not None,
