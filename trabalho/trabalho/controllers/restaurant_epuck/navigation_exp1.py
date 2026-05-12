@@ -1,41 +1,82 @@
-class NavigationEXP1:
+from astar_grid import astar_grid
 
-    def __init__(self, known_map, planner):
+FREE=0
+
+class NavigationExp1:
+
+    def __init__(self, controller, known_map):
+        self.controller = controller
         self.map = known_map
-        self.planner = planner
 
-        self.path = []
-        self.index = 0
-
-
-    def set_mission(self, start_world, goal_world):
-        start = self.map.world_to_grid(*start_world)
-        print("start grid: ", start)
-        goal = self.map.world_to_grid(*goal_world)
-        print("goal grid: ", goal)
-
-        self.path = self.planner.plan(start, goal)
-        print("path: ", self.path)
-        self.index = 0
+        self.cached_target_pos = None
+        self.last_planned_path = []
 
 
-    def get_next(self):
-        if self.index >= len(self.path):
-            return None
-        return self.path[self.index]
+    def plan_path_to_target(self, target_candidates):
 
+        robot_pos = self.controller.get_robot_position()
+        start_cell = self.map.world_to_grid(*robot_pos)
 
-    def update(self, current_grid, reached_fn):
-        if self.index >= len(self.path):
-            return True
+        best_path = []
 
-        target = self.path[self.index]
+        for candidate in target_candidates:
 
-        if reached_fn(current_grid, target):
-            self.index += 1
+            goal_cell = self.map.world_to_grid(*candidate)
 
-        return self.index >= len(self.path)
+            print("\n[TRY GOAL]", candidate)
+            print("goal cell:", goal_cell)
 
+            path = astar_grid(
+                self.map.grid,
+                start_cell,
+                goal_cell,
+                allow_diagonal=True
+            )
 
-    def is_finished(self):
-        return self.index >= len(self.path)
+            if path:
+                print("[SUCCESS] path found")
+                return path
+
+        print("[FAIL] no candidate worked")
+        return []
+    
+    
+    def step(self, target_candidates):
+
+        # sem candidatos
+        if not target_candidates:
+            self.cached_target_pos = None
+            self.last_planned_path = []
+
+            return {
+                "path": [],
+                "path_length": 0
+            }
+
+        # usa o primeiro candidato como cache key
+        current_target = tuple(target_candidates[0])
+
+        should_replan = (
+            self.cached_target_pos != current_target
+            or not self.last_planned_path
+        )
+
+        if should_replan:
+
+            print("\n[EXP1] replanning path...")
+            print("[EXP1] candidates:", target_candidates)
+
+            path = self.plan_path_to_target(target_candidates)
+            print("[EXP1] path len:", len(path))
+
+            self.cached_target_pos = current_target
+            self.last_planned_path = path
+            self.current_waypoint_index = 1
+
+        else:
+            path = self.last_planned_path
+
+        return {
+            "path_length": len(path),
+            "path": path,
+    }

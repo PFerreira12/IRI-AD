@@ -7,13 +7,12 @@ apenas como fallback/emergência.
 
 import math
 from controller import Supervisor, Receiver, Emitter
+from map_utils import save_grid_png
 
-from navigation_exp2 import NavigationExp2
-
-from navigation_exp1 import NavigationEXP1
-from a_star import AStar
+from navigation_exp1 import NavigationExp1
 from known_map import KnownMap
 
+from navigation_exp2 import NavigationExp2
 
 TIME_STEP = 32
 MAX_SPEED = 6.28
@@ -37,7 +36,7 @@ LIDAR_SIDE_DEGREES = 75
 DEFAULT_LIDAR_FOV = 6.28
 
 # Seguimento de A*.
-WAYPOINT_LOOKAHEAD_INDEX = 6
+WAYPOINT_LOOKAHEAD_INDEX = 1
 WAYPOINT_REACHED_RADIUS = 0.04
 ANGLE_TOLERANCE = 0.25
 PATH_FORWARD_SPEED = 1.8
@@ -49,7 +48,7 @@ PATH_EMERGENCY_LIDAR_DISTANCE = 0.08
 WHEEL_RADIUS = 0.0205
 AXLE_LENGTH = 0.052
 
-EXPERIMENT_MODE = "EXP2"
+EXPERIMENT_MODE = "EXP1"
 SERVICE_TIME = 2.0
 REQUEST_CHANNEL = 1
 DONE_CHANNEL = 2
@@ -159,6 +158,7 @@ class RestaurantEpuck:
         self.state = STATE_IDLE
         self.target_id = None
         self.target_pos = None
+        self.target_candidates = []
         self.last_served_id = None
         self.service_start_time = None
         self.request_queue = []
@@ -178,8 +178,7 @@ class RestaurantEpuck:
         self.last_report_time = -1.0
 
         self.known_map = KnownMap()
-        self.planner = AStar(self.known_map)
-        self.navigator = NavigationEXP1(self.known_map, self.planner)
+        self.navigation_exp1 = NavigationExp1(self, self.known_map)
 
         self.navigation_exp2 = NavigationExp2(self)
 
@@ -541,7 +540,13 @@ class RestaurantEpuck:
             return False
 
         self.target_id = table_id
-        self.target_pos = self.TABLES[table_id]
+        #self.target_pos = self.TABLES[table_id]
+        self.target_candidates = self.TABLE_REACH_POINTS[table_id]
+        self.target_pos = self.target_candidates[0]
+        print("[REQUEST DEBUG] table_id:", table_id)
+        print("[DEBUG REQUEST] TABLE_REACH_POINTS:", self.target_candidates)
+        print("[REQUEST DEBUG] target_pos chosen:", self.target_pos)
+        
         self.state = STATE_GOING_TO_TABLE
 
         print(
@@ -629,6 +634,7 @@ class RestaurantEpuck:
         self.set_status_leds(False)
         self.set_wheel_speeds(CRUISE_SPEED, CRUISE_SPEED)
 
+
     def follow_path_step(self, path, fallback_target):
         if not path or len(path) < 2:
             self.navigation_step(fallback_target)
@@ -698,6 +704,50 @@ class RestaurantEpuck:
 
         self.set_status_leds(False)
         self.set_wheel_speeds(left_speed, right_speed)
+
+
+    def follow_path_exp1(self, path):
+        if not path or len(path) < 2:
+            self.stop()
+            return
+
+        # impede overflow
+        if self.navigation_exp1.current_waypoint_index >= len(path):
+            self.stop()
+            return
+
+        waypoint = path[self.navigation_exp1.current_waypoint_index]
+        
+        waypoint_pos = self.known_map.grid_to_world(*waypoint)
+        robot_pos = self.get_robot_position()
+
+        if robot_pos is None or waypoint_pos is None:
+            self.stop()
+            return
+
+        dx = waypoint_pos[0] - robot_pos[0]
+        dy = waypoint_pos[1] - robot_pos[1]
+
+        dist = math.hypot(dx, dy)
+
+        if dist < WAYPOINT_REACHED_RADIUS:
+            self.navigation_exp1.current_waypoint_index += 1
+            self.stop()
+            return
+
+        angle = math.atan2(dy, dx)
+        heading = self.get_robot_heading()
+        error = self.normalize_angle(angle - heading)
+
+        if abs(error) > ANGLE_TOLERANCE:
+            if error > 0:
+                self.set_wheel_speeds(-1.5, 1.5)
+            else:
+                self.set_wheel_speeds(1.5, -1.5)
+            return
+
+        self.set_wheel_speeds(2.5, 2.5)
+
 
     def process_requests(self):
         if self.receiver is None:
@@ -810,12 +860,37 @@ class RestaurantEpuck:
 
         self.last_report_time = now
 
+    
     def run_state_machine(self):
+        
         while self.robot.step(self.time_step) != -1:
             self.process_requests()
             self.update_odometry()
 
             nav_result = None
+            
+            #if self.experiment_mode == "EXP1":
+                #nav_result = self.navigation_exp1.step(self.target_pos)
+            #    nav_result = self.navigation_exp1.step(self.target_candidates)
+
+            if self.experiment_mode == "EXP1":
+
+                if self.state == STATE_GOING_TO_TABLE:
+                    nav_result = self.navigation_exp1.step(
+                        self.target_candidates
+                    )
+
+                elif self.state == STATE_RETURNING_TO_BASE:
+                    nav_result = self.navigation_exp1.step(
+                        [self.base_pos]
+                    )
+
+                else:
+                    nav_result = {
+                        "path": [],
+                        "path_length": 0
+                    }
+            
             if self.experiment_mode == "EXP2":
                 nav_result = self.navigation_exp2.step(self.target_pos)
 
@@ -826,14 +901,19 @@ class RestaurantEpuck:
                 self.set_status_leds(False)
 
             elif self.state == STATE_GOING_TO_TABLE:
-                if (
-                    self.experiment_mode == "EXP2"
-                    and nav_result is not None
-                    and nav_result.get("path_length", 0) > 1
-                ):
-                    self.follow_path_step(nav_result["path"], self.target_pos)
+
+                if self.experiment_mode == "EXP1":
+
+                    if nav_result["path_length"] > 1:
+                        self.follow_path_exp1(nav_result["path"])
+                    else:
+                        self.stop()
+
                 else:
-                    self.navigation_step(self.target_pos)
+                    if nav_result["path_length"] > 1:
+                        self.follow_path_step(nav_result["path"], self.target_pos)
+                    else:
+                        self.navigation_step(self.target_pos)
 
                 if self.has_reached_table_area(self.target_id):
                     self.stop()
@@ -865,14 +945,18 @@ class RestaurantEpuck:
                     print(f"[restaurant_epuck] returning to base from {completed_table}")
 
             elif self.state == STATE_RETURNING_TO_BASE:
-                if (
-                    self.experiment_mode == "EXP2"
-                    and nav_result is not None
-                    and nav_result.get("path_length", 0) > 1
-                ):
-                    self.follow_path_step(nav_result["path"], self.base_pos)
+                
+                if self.experiment_mode == "EXP1":
+                    if nav_result["path_length"] > 1:
+                        self.follow_path_exp1(nav_result["path"])
+                    else:
+                        self.stop()
+
                 else:
-                    self.navigation_step(self.base_pos)
+                    if nav_result["path_length"] > 1:
+                        self.follow_path_step(nav_result["path"], self.base_pos)
+                    else:
+                        self.navigation_step(self.base_pos)
 
                 if self.has_arrived(self.base_pos, self.base_arrival_radius):
                     self.stop()
@@ -898,6 +982,26 @@ class RestaurantEpuck:
                 self.state = STATE_IDLE
 
             self.report_debug()
+
+            
+            if self.robot.getTime() % 2 < 0.03:
+
+                robot_pos = self.get_robot_position()
+                robot_cell = None
+                goal_cell = None
+
+                if robot_pos is not None:
+                    robot_cell = self.known_map.world_to_grid(*robot_pos)
+
+                if self.target_pos is not None:
+                    goal_cell = self.known_map.world_to_grid(*self.target_pos)
+
+                save_grid_png(
+                    self.known_map.grid,
+                    robot_pos=robot_cell,
+                    goal_pos=goal_cell,
+                    path=nav_result["path"] if nav_result else None
+                )
 
 
 if __name__ == "__main__":
