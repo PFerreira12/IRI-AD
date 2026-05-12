@@ -8,8 +8,8 @@ WorldInfo {
   title "Restaurant - E-puck (S=0.12)"
 }
 Viewpoint {
-  orientation 0.2838477927938063 0.11479546073401099 -0.9519729159597718 2.406560286820924
-  position 1.3505041687138664 0.8837875372419176 1.1099094229037414
+  orientation 0.2053619904945761 0.8475147563993558 -0.4894335404786292 0.9194007172059744
+  position -2.095396984178824 0.9580067937262101 2.322111050016426
 }
 TexturedBackground {
   texture "dusk"
@@ -280,43 +280,6 @@ Solid {
   }
 }
 Solid {
-  translation -0.072 -0.258 0.042
-  name "divider_1"
-  boundingObject Box {
-    size 0.0336 0.15 0.084
-  }
-}
-Solid {
-  translation 0.102 -0.018 0.042
-  name "divider_2"
-  boundingObject Box {
-    size 0.0336 0.174 0.084
-  }
-}
-Solid {
-  translation -0.084 0.222 0.042
-  name "divider_3"
-  boundingObject Box {
-    size 0.0336 0.162 0.084
-  }
-}
-Solid {
-  translation 0.018 -0.126 0.036
-  name "plant_central_1"
-  boundingObject Cylinder {
-    height 0.108
-    radius 0.0408
-  }
-}
-Solid {
-  translation -0.006 0.126 0.036
-  name "plant_central_2"
-  boundingObject Cylinder {
-    height 0.108
-    radius 0.0408
-  }
-}
-Solid {
   translation -0.576 0.48 0.036
   name "corner_plant_1"
   boundingObject Cylinder {
@@ -369,7 +332,6 @@ DEF TABLE_LAMP_3 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location -0.408 0.204 0.18
-  on FALSE
   radius 0.24
 }
 DEF TABLE_LAMP_4 PointLight {
@@ -392,7 +354,6 @@ DEF TABLE_LAMP_6 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location 0.432 0.336 0.18
-  on FALSE
   radius 0.24
 }
 Robot {
@@ -409,8 +370,8 @@ Robot {
   supervisor TRUE
 }
 E-puck {
-  translation 0 -0.39000000000016044 -5.71008001399656e-05
-  rotation 1 0 0 3.1795174338369594e-06
+  translation 0 -0.38 0
+  rotation 0 0 1 0
   controller "restaurant_epuck"
   supervisor TRUE
   emitter_channel 2
