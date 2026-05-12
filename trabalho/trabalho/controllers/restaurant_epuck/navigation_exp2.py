@@ -28,7 +28,7 @@ PATH_DEBUG_INTERVAL = 2.0
 # 2 células * 0.03 m = cerca de 6 cm.
 OBSTACLE_INFLATION_RADIUS = 2
 
-PATH_REPLAN_INTERVAL = 1.0
+PATH_REPLAN_INTERVAL = 2.0
 
 
 class NavigationExp2:
@@ -48,6 +48,7 @@ class NavigationExp2:
         self.last_path_plan_time = -999.0
         self.cached_target_pos = None
         self.last_planned_path = []
+        self.last_selected_target_pos = None
 
         print(
             "[navigation_exp2] initialized "
@@ -397,6 +398,37 @@ class NavigationExp2:
 
         return path
 
+    def plan_path_to_candidates(self, target_candidates):
+        if not target_candidates:
+            self.last_planned_path = []
+            self.last_selected_target_pos = None
+            return None, []
+
+        if self.last_selected_target_pos in target_candidates:
+            path = self.plan_path_to_target(self.last_selected_target_pos)
+
+            if path:
+                self.last_planned_path = path
+                return self.last_selected_target_pos, path
+
+        best_target = None
+        best_path = []
+
+        for target_pos in target_candidates:
+            path = self.plan_path_to_target(target_pos)
+
+            if not path:
+                continue
+
+            if not best_path or len(path) < len(best_path):
+                best_target = target_pos
+                best_path = path
+
+        self.last_selected_target_pos = best_target
+        self.last_planned_path = best_path
+
+        return best_target, best_path
+
     def print_path_debug(self, target_pos, path):
         now = 0.0
 
@@ -451,6 +483,37 @@ class NavigationExp2:
 
         return {
             "target_pos": target_pos,
+            "map_update": map_update,
+            "path_length": len(path),
+            "path": path,
+        }
+
+    def step_to_candidates(self, target_candidates):
+        map_update = self.update()
+        target_key = tuple(target_candidates) if target_candidates else None
+
+        now = 0.0
+        if hasattr(self.controller, "robot") and self.controller.robot is not None:
+            now = self.controller.robot.getTime()
+
+        should_replan = (
+            now - self.last_path_plan_time >= PATH_REPLAN_INTERVAL
+            or target_key != self.cached_target_pos
+            or not self.last_planned_path
+        )
+
+        if should_replan:
+            selected_target, path = self.plan_path_to_candidates(target_candidates)
+            self.cached_target_pos = target_key
+            self.last_path_plan_time = now
+        else:
+            selected_target = self.last_selected_target_pos
+            path = self.last_planned_path
+
+        self.print_path_debug(selected_target, path)
+
+        return {
+            "target_pos": selected_target,
             "map_update": map_update,
             "path_length": len(path),
             "path": path,

@@ -17,6 +17,7 @@ MAX_PERIOD_S = 20.0
 REQUEST_CHANNEL = 1
 DONE_CHANNEL = 2
 pending_requests = set()
+request_created_times = {}
 
 emitter.setChannel(REQUEST_CHANNEL)
 receiver.setChannel(DONE_CHANNEL)
@@ -74,9 +75,19 @@ def process_done_messages():
             continue
 
         if table_id in pending_requests:
+            completed_at = robot.getTime()
+            requested_at = request_created_times.pop(table_id, None)
             pending_requests.remove(table_id)
             set_lamp(table_id, False)
-            print(f"[MANAGER] request completed: {table_id}")
+
+            if requested_at is None:
+                print(f"[MANAGER] request completed: {table_id}")
+            else:
+                total_time = completed_at - requested_at
+                print(
+                    f"[MANAGER] request completed: {table_id} "
+                    f"total_time={total_time:.2f}s"
+                )
         else:
             print(f"[MANAGER] DONE received for non-pending table: {table_id}")
 
@@ -90,11 +101,17 @@ def send_random_request():
         return
 
     table_id = random.choice(available_tables)
-    msg = f"REQ {table_id}"
+    requested_at = robot.getTime()
+    msg = f"REQ {table_id} {requested_at:.3f}"
     emitter.send(msg.encode("utf-8"))
     pending_requests.add(table_id)
+    request_created_times[table_id] = requested_at
     set_lamp(table_id, True)
-    print(f"[MANAGER] sent: {msg} | pending={sorted(pending_requests)}")
+    print(
+        f"[MANAGER] sent: {msg} | "
+        f"requested_at={requested_at:.2f} "
+        f"pending={sorted(pending_requests)}"
+    )
 
 
 next_time = robot.getTime() + random.uniform(MIN_PERIOD_S, MAX_PERIOD_S)
