@@ -6,6 +6,7 @@ apenas como fallback/emergência.
 """
 
 import math
+import os
 from controller import Supervisor, Receiver, Emitter
 from map_utils import save_grid_png
 
@@ -66,6 +67,23 @@ STATE_IDLE = "IDLE"
 STATE_GOING_TO_TABLE = "GOING_TO_TABLE"
 STATE_SERVING = "SERVING"
 STATE_RETURNING_TO_BASE = "RETURNING_TO_BASE"
+
+POLICY_FIFO = "FIFO"
+POLICY_NEAREST = "NEAREST"
+POLICY_HYBRID = "HYBRID"
+VALID_REQUEST_POLICIES = {POLICY_FIFO, POLICY_NEAREST, POLICY_HYBRID}
+
+
+def env_float(name, default):
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+
+    try:
+        return float(raw_value)
+    except ValueError:
+        print(f"[restaurant_epuck] invalid {name}={raw_value!r}; using {default}")
+        return default
 
 
 class RestaurantEpuck:
@@ -176,6 +194,17 @@ class RestaurantEpuck:
         self.wait_times = []
         self.return_start_time = None
         self.return_times = []
+        self.run_id = os.environ.get("SIM_RUN_ID", "manual")
+        self.request_policy = os.environ.get("REQUEST_POLICY", POLICY_FIFO).upper()
+        if self.request_policy not in VALID_REQUEST_POLICIES:
+            print(
+                "[restaurant_epuck] unsupported REQUEST_POLICY="
+                f"{self.request_policy!r}; using FIFO"
+            )
+            self.request_policy = POLICY_FIFO
+
+        self.hybrid_wait_weight = env_float("HYBRID_WAIT_WEIGHT", 1.0)
+        self.hybrid_distance_weight = env_float("HYBRID_DISTANCE_WEIGHT", 20.0)
 
         self.estimated_x = self.base_pos[0]
         self.estimated_y = self.base_pos[1]
@@ -270,6 +299,13 @@ class RestaurantEpuck:
             + (f", {enabled}" if enabled else "")
         )
         print(f"[restaurant_epuck] Experiment mode: {self.experiment_mode}")
+        print(
+            "[restaurant_epuck] request selection: "
+            f"run={self.run_id} "
+            f"policy={self.request_policy} "
+            f"hybrid_wait_weight={self.hybrid_wait_weight:.2f} "
+            f"hybrid_distance_weight={self.hybrid_distance_weight:.2f}"
+        )
         print(
             "[restaurant_epuck] communication channels: "
             f"REQ<-{REQUEST_CHANNEL}, DONE->{DONE_CHANNEL}"
@@ -739,6 +775,78 @@ class RestaurantEpuck:
 
         return True
 
+    def distance_to_request(self, table_id):
+        current_pos = self.get_robot_position()
+        if current_pos is None:
+            current_pos = self.base_pos
+
+        candidates = self.TABLE_REACH_POINTS.get(table_id)
+        if not candidates:
+            candidates = [self.TABLES[table_id]]
+
+        current_x, current_y = current_pos
+
+        return min(
+            math.hypot(point_x - current_x, point_y - current_y)
+            for point_x, point_y in candidates
+        )
+
+    def wait_for_request(self, table_id, now):
+        requested_at = self.request_created_times.get(table_id)
+        if requested_at is None:
+            return 0.0
+
+        return max(0.0, now - requested_at)
+
+    def select_next_request(self):
+        if not self.request_queue:
+            return None
+
+        now = self.robot.getTime()
+
+        if self.request_policy == POLICY_FIFO:
+            selected_index = 0
+        elif self.request_policy == POLICY_NEAREST:
+            selected_index = min(
+                range(len(self.request_queue)),
+                key=lambda index: (
+                    self.distance_to_request(self.request_queue[index]),
+                    index,
+                ),
+            )
+        else:
+            selected_index = max(
+                range(len(self.request_queue)),
+                key=lambda index: (
+                    self.hybrid_wait_weight
+                    * self.wait_for_request(self.request_queue[index], now)
+                    - self.hybrid_distance_weight
+                    * self.distance_to_request(self.request_queue[index]),
+                    self.wait_for_request(self.request_queue[index], now),
+                    -index,
+                ),
+            )
+
+        table_id = self.request_queue.pop(selected_index)
+        distance = self.distance_to_request(table_id)
+        wait_time = self.wait_for_request(table_id, now)
+        score = (
+            self.hybrid_wait_weight * wait_time
+            - self.hybrid_distance_weight * distance
+        )
+
+        print(
+            "[restaurant_epuck] selected next request "
+            f"policy={self.request_policy} "
+            f"table={table_id} "
+            f"wait={wait_time:.2f}s "
+            f"distance={distance:.3f} "
+            f"score={score:.2f} "
+            f"remaining_queue={self.request_queue}"
+        )
+
+        return table_id
+
     def record_wait_time(self, table_id, served_at):
         requested_at = self.current_request_created_time
 
@@ -756,6 +864,8 @@ class RestaurantEpuck:
 
         print(
             "[METRIC wait_time] "
+            f"run={self.run_id} "
+            f"policy={self.request_policy} "
             f"table={table_id} "
             f"requested_at={requested_at:.2f} "
             f"served_at={served_at:.2f} "
@@ -777,6 +887,8 @@ class RestaurantEpuck:
 
         print(
             "[METRIC return_time] "
+            f"run={self.run_id} "
+            f"policy={self.request_policy} "
             f"table={table_id} "
             f"done_at={self.return_start_time:.2f} "
             f"base_at={returned_at:.2f} "
@@ -1395,8 +1507,7 @@ class RestaurantEpuck:
                     self.service_start_time = None
 
                     if self.request_queue:
-                        next_table = self.request_queue.pop(0)
-                        print(f"[restaurant_epuck] next FIFO request: {next_table}")
+                        next_table = self.select_next_request()
                         self.start_request(
                             next_table,
                             self.request_created_times.get(next_table),

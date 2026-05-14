@@ -1,0 +1,4 @@
+﻿policy,run,seed,max_completed,max_sim_time,stop_delay,first_period,min_period,max_period,hybrid_wait_weight,hybrid_distance_weight,log
+FIFO,1,1001,3,180,30,5,8,16,1,20,FIFO-1.log
+NEAREST,1,1001,3,180,30,5,8,16,1,20,NEAREST-1.log
+HYBRID,1,1001,3,180,30,5,8,16,1,20,HYBRID-1.log
