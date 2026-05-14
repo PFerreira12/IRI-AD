@@ -47,7 +47,7 @@ PATH_MIN_FORWARD_SPEED = 0.35
 # Durante path following, só abandona o caminho se houver emergência real.
 PATH_EMERGENCY_LIDAR_DISTANCE = 0.11
 PATH_HARD_MIN_LIDAR_DISTANCE = 0.07
-RECOVERY_BACKUP_TIME = 0.35
+RECOVERY_BACKUP_TIME = 0.5
 RECOVERY_TOTAL_TIME = 1.05
 RECOVERY_BACKUP_SPEED = -1.2
 RECOVERY_TURN_SPEED = 1.8
@@ -57,7 +57,7 @@ AXLE_LENGTH = 0.052
 
 EXP1_MODE = "EXP1"
 EXP2_MODE = "EXP2"
-EXPERIMENT_MODE = EXP1_MODE
+EXPERIMENT_MODE = EXP2_MODE
 SERVICE_TIME = 2.0
 REQUEST_CHANNEL = 1
 DONE_CHANNEL = 2
@@ -161,8 +161,8 @@ class RestaurantEpuck:
 
         self.base_pos = (0.0, -0.39)
 
-        self.table_arrival_radius = 0.14
-        self.base_arrival_radius = 0.08
+        self.table_arrival_radius = 0.15
+        self.base_arrival_radius = 0.03
 
         self.state = STATE_IDLE
         self.target_id = None

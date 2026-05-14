@@ -12,8 +12,9 @@ receiver.enable(timestep)
 TABLE_IDS = ["T1", "T2", "T3", "T4", "T5", "T6"]
 LAMP_DEFS = {table_id: f"TABLE_LAMP_{index}" for index, table_id in enumerate(TABLE_IDS, start=1)}
 
-MIN_PERIOD_S = 8.0
-MAX_PERIOD_S = 20.0
+FIRST_PERIOD_S = 5.0
+MIN_PERIOD_S = 25.0
+MAX_PERIOD_S = 35.0
 REQUEST_CHANNEL = 1
 DONE_CHANNEL = 2
 pending_requests = set()
@@ -98,7 +99,7 @@ def send_random_request():
     ]
     if not available_tables:
         print("[MANAGER] all tables pending; waiting before sending new requests")
-        return
+        return False
 
     table_id = random.choice(available_tables)
     requested_at = robot.getTime()
@@ -112,9 +113,10 @@ def send_random_request():
         f"requested_at={requested_at:.2f} "
         f"pending={sorted(pending_requests)}"
     )
+    return True
 
-
-next_time = robot.getTime() + random.uniform(MIN_PERIOD_S, MAX_PERIOD_S)
+# Initialize the first request time
+next_time = robot.getTime() + FIRST_PERIOD_S
 
 while robot.step(timestep) != -1:
     process_done_messages()
