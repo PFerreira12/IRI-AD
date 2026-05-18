@@ -68,6 +68,7 @@ pending_requests = set()
 request_created_times = {}
 completed_requests = 0
 stop_requested_at = None
+pending_metrics_reported = False
 
 emitter.setChannel(REQUEST_CHANNEL)
 receiver.setChannel(DONE_CHANNEL)
@@ -190,7 +191,7 @@ def send_random_request():
 
 
 def should_stop():
-    global stop_requested_at
+    global pending_metrics_reported, stop_requested_at
 
     now = robot.getTime()
 
@@ -202,6 +203,9 @@ def should_stop():
                 f"completed_requests={completed_requests} "
                 f"stop_delay={STOP_DELAY_S:.2f}s"
             )
+            if not pending_metrics_reported:
+                report_pending_metrics(now)
+                pending_metrics_reported = True
 
         if now - stop_requested_at >= STOP_DELAY_S:
             print(
@@ -211,10 +215,32 @@ def should_stop():
             return True
 
     if MAX_SIM_TIME_S > 0.0 and now >= MAX_SIM_TIME_S:
+        if not pending_metrics_reported:
+            report_pending_metrics(now)
+            pending_metrics_reported = True
+
         print("[MANAGER] stopping simulation: max simulation time reached")
         return True
 
     return False
+
+
+def report_pending_metrics(stop_at):
+    for table_id in sorted(pending_requests):
+        requested_at = request_created_times.get(table_id)
+        if requested_at is None:
+            continue
+
+        pending_wait = max(0.0, stop_at - requested_at)
+        print(
+            "[METRIC pending_wait] "
+            f"run={RUN_ID} "
+            f"policy={REQUEST_POLICY} "
+            f"table={table_id} "
+            f"requested_at={requested_at:.2f} "
+            f"stop_at={stop_at:.2f} "
+            f"pending_wait={pending_wait:.2f}s"
+        )
 
 
 # Initialize the first request time

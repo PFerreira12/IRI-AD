@@ -53,6 +53,12 @@ RECOVERY_TOTAL_TIME = 1.05
 RECOVERY_BACKUP_SPEED = -1.2
 RECOVERY_TURN_SPEED = 1.8
 
+# Detecao simples de bloqueio: se o robo nao reduz a distancia ao alvo
+# durante alguns segundos, assume que ficou preso junto a uma cadeira/mesa.
+STUCK_TIMEOUT = 6.0
+STUCK_MIN_PROGRESS = 0.01
+STUCK_RECOVERY_TOTAL_TIME = 1.8
+
 WHEEL_RADIUS = 0.0205
 AXLE_LENGTH = 0.052
 
@@ -179,7 +185,7 @@ class RestaurantEpuck:
 
         self.base_pos = (0.0, -0.39)
 
-        self.table_arrival_radius = 0.15
+        self.table_arrival_radius = 0.18
         self.base_arrival_radius = 0.03
 
         self.state = STATE_IDLE
@@ -204,7 +210,7 @@ class RestaurantEpuck:
             self.request_policy = POLICY_FIFO
 
         self.hybrid_wait_weight = env_float("HYBRID_WAIT_WEIGHT", 1.0)
-        self.hybrid_distance_weight = env_float("HYBRID_DISTANCE_WEIGHT", 20.0)
+        self.hybrid_distance_weight = env_float("HYBRID_DISTANCE_WEIGHT", 30.0)
 
         self.estimated_x = self.base_pos[0]
         self.estimated_y = self.base_pos[1]
@@ -227,6 +233,8 @@ class RestaurantEpuck:
         self.obstacle_recovery_start_time = None
         self.obstacle_recovery_until = 0.0
         self.obstacle_recovery_direction = 1
+        self.best_navigation_distance = None
+        self.last_navigation_progress_time = None
 
         self.known_map = None
         self.navigation_exp1 = None
@@ -710,6 +718,74 @@ class RestaurantEpuck:
             point[1] - current_pos[1],
         )
 
+    def reset_navigation_progress(self):
+        self.best_navigation_distance = None
+        self.last_navigation_progress_time = None
+
+    def current_navigation_distance(self):
+        if self.state == STATE_GOING_TO_TABLE and self.target_id is not None:
+            return self.distance_to_table_area(self.target_id)
+
+        if self.state == STATE_RETURNING_TO_BASE:
+            return self.distance_to_point(self.base_pos)
+
+        return None
+
+    def invalidate_navigation_plan(self):
+        if self.navigation_exp1 is not None:
+            self.navigation_exp1.last_planned_path = []
+            self.navigation_exp1.cached_target_pos = None
+            self.navigation_exp1.current_waypoint_index = 1
+
+        if self.navigation_exp2 is not None:
+            self.navigation_exp2.last_planned_path = []
+            self.navigation_exp2.cached_target_pos = None
+            self.navigation_exp2.last_selected_target_pos = None
+            self.navigation_exp2.last_path_plan_time = -999.0
+
+    def detect_navigation_stuck(self):
+        if self.state not in (STATE_GOING_TO_TABLE, STATE_RETURNING_TO_BASE):
+            self.reset_navigation_progress()
+            return False
+
+        if self.robot.getTime() < self.obstacle_recovery_until:
+            return False
+
+        distance = self.current_navigation_distance()
+        if distance is None:
+            self.reset_navigation_progress()
+            return False
+
+        now = self.robot.getTime()
+
+        if self.best_navigation_distance is None:
+            self.best_navigation_distance = distance
+            self.last_navigation_progress_time = now
+            return False
+
+        if distance < self.best_navigation_distance - STUCK_MIN_PROGRESS:
+            self.best_navigation_distance = distance
+            self.last_navigation_progress_time = now
+            return False
+
+        if self.last_navigation_progress_time is None:
+            self.last_navigation_progress_time = now
+            return False
+
+        if now - self.last_navigation_progress_time < STUCK_TIMEOUT:
+            return False
+
+        print(
+            "[restaurant_epuck] navigation stuck detected "
+            f"state={self.state} "
+            f"target={self.target_id} "
+            f"distance={distance:.3f} "
+            f"best={self.best_navigation_distance:.3f}"
+        )
+        self.best_navigation_distance = distance
+        self.last_navigation_progress_time = now
+        return True
+
     def distance_to_table_area(self, table_id):
         current_pos = self.get_robot_position()
 
@@ -762,6 +838,7 @@ class RestaurantEpuck:
         #self.target_pos = self.TABLES[table_id]
         self.target_candidates = self.TABLE_REACH_POINTS[table_id]
         self.target_pos = self.target_candidates[0]
+        self.reset_navigation_progress()
         print("[REQUEST DEBUG] table_id:", table_id)
         print("[DEBUG REQUEST] TABLE_REACH_POINTS:", self.target_candidates)
         print("[REQUEST DEBUG] target_pos chosen:", self.target_pos)
@@ -976,7 +1053,12 @@ class RestaurantEpuck:
         self.set_status_leds(False)
         self.set_wheel_speeds(CRUISE_SPEED, CRUISE_SPEED)
 
-    def start_obstacle_recovery(self, lidar_info=None):
+    def start_obstacle_recovery(
+        self,
+        lidar_info=None,
+        total_time=RECOVERY_TOTAL_TIME,
+        reason="obstacle",
+    ):
         now = self.robot.getTime()
 
         if now < self.obstacle_recovery_until:
@@ -997,7 +1079,8 @@ class RestaurantEpuck:
             self.obstacle_recovery_direction = -1
 
         self.obstacle_recovery_start_time = now
-        self.obstacle_recovery_until = now + RECOVERY_TOTAL_TIME
+        self.obstacle_recovery_until = now + total_time
+        self.reset_navigation_progress()
 
         if self.navigation_exp1 is not None:
             self.navigation_exp1.current_waypoint_index = min(
@@ -1005,7 +1088,13 @@ class RestaurantEpuck:
                 max(1, len(self.navigation_exp1.last_planned_path) - 1),
             )
 
-        print("[restaurant_epuck] obstacle recovery started")
+        self.invalidate_navigation_plan()
+
+        print(
+            "[restaurant_epuck] obstacle recovery started "
+            f"reason={reason} "
+            f"duration={total_time:.2f}s"
+        )
 
     def run_obstacle_recovery(self):
         now = self.robot.getTime()
@@ -1421,6 +1510,13 @@ class RestaurantEpuck:
 
             nav_result = self.get_navigation_result()
 
+            if self.detect_navigation_stuck():
+                self.start_obstacle_recovery(
+                    self.lidar_navigation_info(),
+                    total_time=STUCK_RECOVERY_TOTAL_TIME,
+                    reason="stuck",
+                )
+
             now = self.robot.getTime()
 
             if self.state == STATE_IDLE:
@@ -1474,6 +1570,7 @@ class RestaurantEpuck:
                     self.target_pos = self.base_pos
                     self.current_request_created_time = None
                     self.request_created_times.pop(completed_table, None)
+                    self.reset_navigation_progress()
                     self.state = STATE_RETURNING_TO_BASE
 
                     print(f"[restaurant_epuck] returning to base from {completed_table}")
@@ -1505,6 +1602,7 @@ class RestaurantEpuck:
                     self.target_id = None
                     self.target_pos = None
                     self.service_start_time = None
+                    self.reset_navigation_progress()
 
                     if self.request_queue:
                         next_table = self.select_next_request()
