@@ -185,8 +185,8 @@ class RestaurantEpuck:
 
         self.base_pos = (0.0, -0.39)
 
-        self.table_arrival_radius = 0.18
-        self.base_arrival_radius = 0.03
+        self.table_arrival_radius = 0.15
+        self.base_arrival_radius = 0.02
 
         self.state = STATE_IDLE
         self.target_id = None
@@ -201,7 +201,7 @@ class RestaurantEpuck:
         self.return_start_time = None
         self.return_times = []
         self.run_id = os.environ.get("SIM_RUN_ID", "manual")
-        self.request_policy = os.environ.get("REQUEST_POLICY", POLICY_FIFO).upper()
+        self.request_policy = os.environ.get("REQUEST_POLICY", POLICY_NEAREST).upper()
         if self.request_policy not in VALID_REQUEST_POLICIES:
             print(
                 "[restaurant_epuck] unsupported REQUEST_POLICY="
