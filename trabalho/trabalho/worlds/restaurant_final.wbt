@@ -9,7 +9,7 @@ WorldInfo {
 }
 Viewpoint {
   orientation 0.1741314955281441 0.8607667718686691 -0.4782873474303107 0.8002727483804619
-  position -2.095396984178824 0.9580067937262101 2.322111050016426
+  position -1.8532883056126832 0.8558735541108323 2.101546264973871
 }
 TexturedBackground {
   texture "dusk"
@@ -324,7 +324,6 @@ DEF TABLE_LAMP_2 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location -0.168 -0.12 0.18
-  on FALSE
   radius 0.24
 }
 DEF TABLE_LAMP_3 PointLight {
@@ -355,12 +354,11 @@ DEF TABLE_LAMP_6 PointLight {
   color 1 0.85 0.35
   intensity 2.5
   location 0.432 0.336 0.18
+  on FALSE
   radius 0.24
 }
-
 Robot {
   translation 0 0 -1
-  name "requests_manager_robot"
   children [
     Emitter {
       channel 1
@@ -369,18 +367,19 @@ Robot {
       channel 2
     }
   ]
+  name "requests_manager_robot"
   controller "requests_manager"
   supervisor TRUE
 }
-
 Robot {
   translation 0 0 -1
   name "dynamic_obstacles_robot"
-  supervisor TRUE
   controller "dynamic_obstacles_manager"
+  supervisor TRUE
 }
+
 DEF MOVING_PERSON_1 Solid {
-  translation -0.576 0.48 0.05
+  translation -0.46 0.40 0.07
   rotation 0 0 1 0
   name "moving_person_1"
   children [
@@ -390,14 +389,58 @@ DEF MOVING_PERSON_1 Solid {
         roughness 0.5
       }
       geometry Cylinder {
-        radius 0.045
-        height 0.10
+        radius 0.035
+        height 0.14
       }
     }
   ]
   boundingObject Cylinder {
-    radius 0.045
-    height 0.10
+    radius 0.035
+    height 0.14
+  }
+}
+
+DEF MOVING_PERSON_2 Solid {
+  translation -0.18 -0.24 0.055
+  rotation 0 0 1 0
+  name "moving_person_2"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.35 0.55 0.75
+        roughness 0.5
+      }
+      geometry Cylinder {
+        radius 0.04
+        height 0.11
+      }
+    }
+  ]
+  boundingObject Cylinder {
+    radius 0.04
+    height 0.11
+  }
+}
+
+DEF MOVING_PERSON_3 Solid {
+  translation -0.26 -0.36 0.045
+  rotation 0 0 1 0
+  name "moving_person_3"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.95 0.35 0.20
+        roughness 0.5
+      }
+      geometry Cylinder {
+        radius 0.045
+        height 0.09
+      }
+    }
+  ]
+  boundingObject Cylinder {
+    radius 0.05
+    height 0.09
   }
 }
 E-puck {
