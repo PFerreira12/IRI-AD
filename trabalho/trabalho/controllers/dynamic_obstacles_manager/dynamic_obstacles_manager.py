@@ -51,7 +51,7 @@ its LiDAR and proximity sensors.
 """
 
 TIME_STEP = 32
-DYNAMIC_ENVIRONMENT = False
+DYNAMIC_ENVIRONMENT = True
 
 SCENARIO_PERIOD = 95.0
 
