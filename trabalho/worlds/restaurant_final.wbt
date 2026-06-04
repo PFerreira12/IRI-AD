@@ -23,7 +23,7 @@ Pose {
   children [
     CadShape {
       url [
-        "../meshes/ambiente_v2.obj"
+        "../meshes/ambiente.obj"
       ]
     }
   ]

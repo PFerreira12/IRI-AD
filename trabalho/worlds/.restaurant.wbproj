@@ -5,6 +5,6 @@ sceneTreePerspectives: 000000ff00000001000000030000002200000241000000fa010000000
 maximizedDockId: -1
 centralWidgetVisible: 1
 orthographicViewHeight: 1
-textFiles: 1 "meshes/ambiente_v2.obj" "restaurant_final.wbt"
+textFiles: 1 "meshes/ambiente.obj" "restaurant_final.wbt"
 consoles: Console:All:All
 renderingDevicePerspectives: e-puck:camera;1;1;0;0
