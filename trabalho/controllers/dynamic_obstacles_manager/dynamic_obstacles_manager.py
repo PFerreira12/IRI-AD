@@ -284,7 +284,7 @@ class DynamicObstaclesManager:
                 def_name="MOVING_PERSON_3",
                 circuits=self.circuits,
                 active_windows=WINDOW_PERSON_3,
-                lap_time=6.0,
+                lap_time=10.0,
                 z_height=0.045,
                 circuit_offset=2,
             ),
