@@ -8,9 +8,7 @@ apenas como fallback/emergência.
 import math, sys, os
 from controller import Supervisor, Receiver, Emitter
 from metrics import MetricsManager
-
-from config_tables import TABLES_1, TABLE_REACH_POINTS_1
-from navigation_manager import NavigationManager
+from map_utils import save_grid_png
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dynamic_obstacles_manager.dynamic_obstacles_manager import DYNAMIC_ENVIRONMENT
@@ -18,6 +16,13 @@ from dynamic_obstacles_manager.dynamic_obstacles_manager import DYNAMIC_ENVIRONM
 
 TIME_STEP = 32
 MAX_SPEED = 6.28
+
+CRUISE_SPEED = 3.2
+TURN_SPEED = 2.4
+
+# Navegação reativa fallback.
+NAV_WARNING_THRESHOLD = 78.0
+NAV_OBSTACLE_THRESHOLD = 85.0
 
 # Calibracao inicial dos sensores.
 SENSOR_CALIBRATION_SAMPLES = 20
@@ -30,10 +35,33 @@ ODOMETRY_BLOCK_THRESHOLD = 78.0
 
 # Lidar para fallback reativo.
 LIDAR_NAV_MIN_VALID_DISTANCE = 0.06
-
+LIDAR_CLEAR_DISTANCE = 0.18
+LIDAR_CAUTION_DISTANCE = 0.25
 LIDAR_FRONT_DEGREES = 30
 LIDAR_SIDE_DEGREES = 75
 DEFAULT_LIDAR_FOV = 6.28
+
+# Seguimento de A*.
+WAYPOINT_LOOKAHEAD_INDEX = 4
+WAYPOINT_REACHED_RADIUS = 0.04
+ANGLE_TOLERANCE = 0.25
+PATH_FORWARD_SPEED = 1.8
+PATH_TURN_SPEED = 1.2
+PATH_MIN_FORWARD_SPEED = 0.35
+
+# Durante path following, só abandona o caminho se houver emergência real.
+PATH_EMERGENCY_LIDAR_DISTANCE = 0.11
+PATH_HARD_MIN_LIDAR_DISTANCE = 0.07
+RECOVERY_BACKUP_TIME = 0.5
+RECOVERY_TOTAL_TIME = 1
+RECOVERY_BACKUP_SPEED = -1.2
+RECOVERY_TURN_SPEED = 1.8
+
+# Detecao simples de bloqueio: se o robo nao reduz a distancia ao alvo
+# durante alguns segundos, assume que ficou preso junto a uma cadeira/mesa.
+STUCK_TIMEOUT = 6.0
+STUCK_MIN_PROGRESS = 0.01
+STUCK_RECOVERY_TOTAL_TIME = 1.8
 
 WHEEL_RADIUS = 0.0205
 AXLE_LENGTH = 0.052
@@ -54,8 +82,6 @@ POLICY_FIFO = "FIFO"
 POLICY_NEAREST = "NEAREST"
 POLICY_HYBRID = "HYBRID"
 VALID_REQUEST_POLICIES = {POLICY_FIFO, POLICY_NEAREST, POLICY_HYBRID}
-
-STUCK_RECOVERY_TOTAL_TIME = 1.8
 
 
 def env_float(name, default):
@@ -108,7 +134,64 @@ class RestaurantEpuck:
         if self.emitter is not None:
             self.emitter.setChannel(DONE_CHANNEL)
 
+        self.TABLES = {
+            "T1": (-0.432, -0.312),
+            "T2": (-0.168, -0.120),
+            "T3": (-0.408, 0.204),
+            "T4": (0.396, -0.252),
+            "T5": (0.144, 0.084),
+            "T6": (0.432, 0.336),
+        }
+
+        self.TABLE_REACH_POINTS = {
+            "T1": [
+                (-0.432, -0.312),
+                (-0.432, -0.2136),
+                (-0.432, -0.4104),
+                (-0.3336, -0.312),
+                (-0.5304, -0.312),
+            ],
+            "T2": [
+                (-0.168, -0.120),
+                (-0.168, -0.0216),
+                (-0.168, -0.2184),
+                (-0.0696, -0.120),
+                (-0.2664, -0.120),
+            ],
+            "T3": [
+                (-0.408, 0.204),
+                (-0.408, 0.3024),
+                (-0.408, 0.1056),
+                (-0.3096, 0.204),
+                (-0.5064, 0.204),
+            ],
+            "T4": [
+                (0.396, -0.252),
+                (0.396, -0.1536),
+                (0.396, -0.3504),
+                (0.4944, -0.252),
+                (0.2976, -0.252),
+            ],
+            "T5": [
+                (0.144, 0.084),
+                (0.144, 0.1824),
+                (0.144, -0.0144),
+                (0.2424, 0.084),
+                (0.0456, 0.084),
+            ],
+            "T6": [
+                (0.432, 0.336),
+                (0.432, 0.4344),
+                (0.432, 0.2376),
+                (0.5304, 0.336),
+                (0.3336, 0.336),
+            ],
+        }
+
         self.base_pos = (0.0, -0.39)
+
+        self.table_arrival_radius = 0.15
+        self.base_arrival_radius = 0.05 #0.02
 
         self.state = STATE_IDLE
         self.target_id = None
@@ -120,6 +203,7 @@ class RestaurantEpuck:
         self.request_queue = []
         self.request_created_times = {}
         self.current_request_created_time = None
+
 
         self.request_policy = os.environ.get("REQUEST_POLICY", POLICY_NEAREST).upper()
         if self.request_policy not in VALID_REQUEST_POLICIES:
@@ -150,10 +234,23 @@ class RestaurantEpuck:
 
         self.last_encoder_warning_time = -999.0
         self.last_report_time = -1.0
+        self.obstacle_recovery_start_time = None
+        self.obstacle_recovery_until = 0.0
+        self.obstacle_recovery_direction = 1
+        self.best_navigation_distance = None
+        self.last_navigation_progress_time = None
 
-        self.nav_man = NavigationManager(self)
+        self.in_safety_recovery = False
 
-        self.nav_man.configure_experiment()
+        self.known_map = None
+        self.navigation_exp1 = None
+        self.navigation_exp2 = None
+        self.configure_experiment()
+
+        '''self.dynamic_environment = (
+            os.environ.get("DYNAMIC_ENVIRONMENT", "false")
+            .lower() == "true"
+        )'''
 
         self.dynamic_environment = DYNAMIC_ENVIRONMENT
 
@@ -165,8 +262,25 @@ class RestaurantEpuck:
 
         self._print_configuration_summary()
         self.calibrate_sensors()
-    
-    
+
+
+    def configure_experiment(self):
+        if self.experiment_mode == EXP1_MODE:
+            from known_map import KnownMap
+            from navigation_exp1 import NavigationExp1
+
+            self.known_map = KnownMap()
+            self.navigation_exp1 = NavigationExp1(self, self.known_map)
+            return
+
+        if self.experiment_mode == EXP2_MODE:
+            from navigation_exp2 import NavigationExp2
+
+            self.navigation_exp2 = NavigationExp2(self)
+            return
+
+        raise ValueError(f"Unsupported experiment mode: {self.experiment_mode}")
+
     def _required_device(self, name):
         device = self.robot.getDevice(name)
         if device is None:
@@ -602,6 +716,119 @@ class RestaurantEpuck:
         self.previous_right_encoder = None
         print("[restaurant_epuck] EXP2 odometry reset at base")
 
+    def has_arrived(self, target_pos, radius):
+        current_pos = self.get_robot_position()
+
+        if current_pos is None or target_pos is None:
+            return False
+
+        dx = target_pos[0] - current_pos[0]
+        dy = target_pos[1] - current_pos[1]
+
+        return math.hypot(dx, dy) <= radius
+
+    def distance_to_point(self, point):
+        current_pos = self.get_robot_position()
+
+        if current_pos is None or point is None:
+            return None
+
+        return math.hypot(
+            point[0] - current_pos[0],
+            point[1] - current_pos[1],
+        )
+
+    def reset_navigation_progress(self):
+        self.best_navigation_distance = None
+        self.last_navigation_progress_time = None
+
+    def current_navigation_distance(self):
+        if self.state == STATE_GOING_TO_TABLE and self.target_id is not None:
+            return self.distance_to_table_area(self.target_id)
+
+        if self.state == STATE_RETURNING_TO_BASE:
+            return self.distance_to_point(self.base_pos)
+
+        return None
+
+    def invalidate_navigation_plan(self):
+        if self.navigation_exp1 is not None:
+            self.navigation_exp1.last_planned_path = []
+            self.navigation_exp1.cached_target_pos = None
+            self.navigation_exp1.current_waypoint_index = 1
+
+        if self.navigation_exp2 is not None:
+            self.navigation_exp2.last_planned_path = []
+            self.navigation_exp2.cached_target_pos = None
+            self.navigation_exp2.last_selected_target_pos = None
+            self.navigation_exp2.last_path_plan_time = -999.0
+
+    def detect_navigation_stuck(self):
+        if self.state not in (STATE_GOING_TO_TABLE, STATE_RETURNING_TO_BASE):
+            self.reset_navigation_progress()
+            return False
+
+        if self.robot.getTime() < self.obstacle_recovery_until:
+            return False
+
+        distance = self.current_navigation_distance()
+        if distance is None:
+            self.reset_navigation_progress()
+            return False
+
+        now = self.robot.getTime()
+
+        if self.best_navigation_distance is None:
+            self.best_navigation_distance = distance
+            self.last_navigation_progress_time = now
+            return False
+
+        if distance < self.best_navigation_distance - STUCK_MIN_PROGRESS:
+            self.best_navigation_distance = distance
+            self.last_navigation_progress_time = now
+            return False
+
+        if self.last_navigation_progress_time is None:
+            self.last_navigation_progress_time = now
+            return False
+
+        if now - self.last_navigation_progress_time < STUCK_TIMEOUT:
+            return False
+
+        print(
+            "[restaurant_epuck] navigation stuck detected "
+            f"state={self.state} "
+            f"target={self.target_id} "
+            f"distance={distance:.3f} "
+            f"best={self.best_navigation_distance:.3f}"
+        )
+        self.best_navigation_distance = distance
+        self.last_navigation_progress_time = now
+        return True
+
+    def distance_to_table_area(self, table_id):
+        current_pos = self.get_robot_position()
+
+        if current_pos is None or table_id not in self.TABLE_REACH_POINTS:
+            return None
+
+        robot_x, robot_y = current_pos
+
+        distances = [
+            math.hypot(point_x - robot_x, point_y - robot_y)
+            for point_x, point_y in self.TABLE_REACH_POINTS[table_id]
+        ]
+
+        return min(distances)
+
+    def has_reached_table_area(self, table_id):
+        distance = self.distance_to_table_area(table_id)
+
+        if distance is None:
+            return False
+
+        return distance <= self.table_arrival_radius
+    
 
     def notify_request_done(self, table_id):
         if table_id is None:
@@ -618,7 +845,7 @@ class RestaurantEpuck:
 
 
     def start_request(self, table_id, requested_at=None):
-        if table_id not in TABLES_1:
+        if table_id not in self.TABLES:
             print(f"[restaurant_epuck] cannot start unknown table: {table_id}")
             return False
 
@@ -635,10 +862,10 @@ class RestaurantEpuck:
         self.metrics.start_mission(self.robot.getTime())
 
         #self.target_pos = self.TABLES[table_id]
-        self.target_candidates = TABLE_REACH_POINTS_1[table_id]
+        self.target_candidates = self.TABLE_REACH_POINTS[table_id]
         self.target_pos = self.target_candidates[0]
         
-        self.nav_man.reset_navigation_progress()
+        self.reset_navigation_progress()
         print("[REQUEST DEBUG] table_id:", table_id)
         print("[DEBUG REQUEST] TABLE_REACH_POINTS:", self.target_candidates)
         print("[REQUEST DEBUG] target_pos chosen:", self.target_pos)
@@ -658,9 +885,9 @@ class RestaurantEpuck:
         if current_pos is None:
             current_pos = self.base_pos
 
-        candidates = TABLE_REACH_POINTS_1.get(table_id)
+        candidates = self.TABLE_REACH_POINTS.get(table_id)
         if not candidates:
-            candidates = [TABLES_1[table_id]]
+            candidates = [self.TABLES[table_id]]
 
         current_x, current_y = current_pos
 
@@ -728,6 +955,420 @@ class RestaurantEpuck:
         return table_id
 
 
+    def navigation_step(self, target_pos):
+        """Fallback reativo quando não há caminho A* utilizável."""
+        left_front, right_front = self.front_obstacle_levels()
+        ps_max_front = max(left_front, right_front)
+
+        lidar_info = self.lidar_navigation_info()
+
+        if ps_max_front > NAV_OBSTACLE_THRESHOLD:
+            if left_front >= right_front:
+                left_speed = TURN_SPEED
+                right_speed = -TURN_SPEED
+            else:
+                left_speed = -TURN_SPEED
+                right_speed = TURN_SPEED
+
+            self.set_status_leds(True)
+            self.set_wheel_speeds(left_speed, right_speed)
+            return
+
+        if lidar_info is not None:
+            front = lidar_info["front"]
+            left = lidar_info["left"]
+            right = lidar_info["right"]
+
+            front_blocked = front is not None and front < LIDAR_CLEAR_DISTANCE
+            front_caution = front is not None and front < LIDAR_CAUTION_DISTANCE
+
+            if front_blocked:
+                left_space = left if left is not None else 0.0
+                right_space = right if right is not None else 0.0
+
+                if left_space >= right_space:
+                    left_speed = -TURN_SPEED
+                    right_speed = TURN_SPEED
+                else:
+                    left_speed = TURN_SPEED
+                    right_speed = -TURN_SPEED
+
+                self.set_status_leds(True)
+                self.set_wheel_speeds(left_speed, right_speed)
+                return
+
+            if front_caution:
+                left_space = left if left is not None else 0.0
+                right_space = right if right is not None else 0.0
+
+                slow_speed = CRUISE_SPEED * 0.45
+                steer = 0.8
+
+                if left_space >= right_space:
+                    left_speed = slow_speed - steer
+                    right_speed = slow_speed + steer
+                else:
+                    left_speed = slow_speed + steer
+                    right_speed = slow_speed - steer
+
+                self.set_status_leds(True)
+                self.set_wheel_speeds(left_speed, right_speed)
+                return
+
+        if ps_max_front > NAV_WARNING_THRESHOLD:
+            slow_speed = CRUISE_SPEED * 0.55
+            steer = 0.7
+
+            if left_front >= right_front:
+                left_speed = slow_speed + steer
+                right_speed = slow_speed - steer
+            else:
+                left_speed = slow_speed - steer
+                right_speed = slow_speed + steer
+
+            self.set_status_leds(True)
+            self.set_wheel_speeds(left_speed, right_speed)
+            return
+
+        self.set_status_leds(False)
+        self.set_wheel_speeds(CRUISE_SPEED, CRUISE_SPEED)
+
+
+    def start_obstacle_recovery(
+        self,
+        lidar_info=None,
+        total_time=RECOVERY_TOTAL_TIME,
+        reason="obstacle",
+    ):
+        now = self.robot.getTime()
+
+        if now < self.obstacle_recovery_until:
+            return
+        
+        if not self.in_safety_recovery:
+            self.metrics.near_collision_count += 1
+            self.in_safety_recovery = True
+
+        left_space = 0.0
+        right_space = 0.0
+
+        if lidar_info is not None:
+            left = lidar_info["left"]
+            right = lidar_info["right"]
+            left_space = left if left is not None else 0.0
+            right_space = right if right is not None else 0.0
+
+        if left_space >= right_space:
+            self.obstacle_recovery_direction = 1
+        else:
+            self.obstacle_recovery_direction = -1
+
+        self.obstacle_recovery_start_time = now
+        self.obstacle_recovery_until = now + total_time
+        self.reset_navigation_progress()
+
+        if self.navigation_exp1 is not None:
+            self.navigation_exp1.current_waypoint_index = min(
+                self.navigation_exp1.current_waypoint_index + 1,
+                max(1, len(self.navigation_exp1.last_planned_path) - 1),
+            )
+
+        self.invalidate_navigation_plan()
+
+        print(
+            "[restaurant_epuck] obstacle recovery started "
+            f"reason={reason} "
+            f"duration={total_time:.2f}s"
+        )
+
+    def run_obstacle_recovery(self):
+        now = self.robot.getTime()
+
+        if now >= self.obstacle_recovery_until:
+            self.obstacle_recovery_start_time = None
+            self.in_safety_recovery = False
+            return False
+
+        start_time = self.obstacle_recovery_start_time
+        if start_time is None:
+            start_time = now
+            self.obstacle_recovery_start_time = now
+
+        self.set_status_leds(True)
+
+        if now - start_time < RECOVERY_BACKUP_TIME:
+            self.set_wheel_speeds(RECOVERY_BACKUP_SPEED, RECOVERY_BACKUP_SPEED)
+            return True
+
+        turn = RECOVERY_TURN_SPEED * self.obstacle_recovery_direction
+        self.set_wheel_speeds(-turn, turn)
+        return True
+
+    def path_obstacle_emergency(self):
+        
+        left_front, right_front = self.front_obstacle_levels()
+        calibrated_proximity = self.calibrated_proximity_values()
+        
+        calibrated_left_front = max(
+            calibrated_proximity[5],
+            calibrated_proximity[6],
+            calibrated_proximity[7],
+        )
+        calibrated_right_front = max(
+            calibrated_proximity[0],
+            calibrated_proximity[1],
+            calibrated_proximity[2],
+        )
+
+        if max(left_front, right_front) > NAV_OBSTACLE_THRESHOLD:
+            print(
+                f"[EMERGENCY] ps={max(left_front,right_front):.1f}"
+            )
+            return True, self.lidar_navigation_info()
+
+        lidar_info = self.lidar_navigation_info()
+        if lidar_info is None:
+            return False, None
+
+        front = lidar_info["front"]
+        front_min = lidar_info.get("front_min")
+
+        if front is not None and front < PATH_EMERGENCY_LIDAR_DISTANCE:
+            print(
+                f"[EMERGENCY] front={front:.3f} "
+                f"threshold={PATH_EMERGENCY_LIDAR_DISTANCE}"
+            )
+            return True, lidar_info
+
+        if front_min is not None and front_min < PATH_HARD_MIN_LIDAR_DISTANCE:
+            print(
+                f"[EMERGENCY] front_min={front_min:.3f} "
+                f"threshold={PATH_HARD_MIN_LIDAR_DISTANCE}"
+            )
+            return True, lidar_info
+
+        return False, lidar_info
+
+
+    def follow_path_step(self, path, fallback_target):
+        if not path or len(path) < 2:
+            self.navigation_step(fallback_target)
+            return
+
+        if self.navigation_exp2 is None:
+            self.navigation_step(fallback_target)
+            return
+
+        waypoint_index = min(WAYPOINT_LOOKAHEAD_INDEX, len(path) - 1)
+        waypoint_cell = path[waypoint_index]
+
+        waypoint_pos = self.navigation_exp2.grid_to_world(
+            waypoint_cell[0],
+            waypoint_cell[1],
+        )
+
+        current_pos = self.get_robot_position()
+
+        if current_pos is None or waypoint_pos is None:
+            self.navigation_step(fallback_target)
+            return
+
+        robot_x, robot_y = current_pos
+        waypoint_x, waypoint_y = waypoint_pos
+
+        dx = waypoint_x - robot_x
+        dy = waypoint_y - robot_y
+
+        distance = math.hypot(dx, dy)
+
+        target_angle = math.atan2(dy, dx)
+        heading = self.get_robot_heading()
+        angle_error = self.normalize_angle(target_angle - heading)
+
+        if self.run_obstacle_recovery():
+            return
+
+        emergency, lidar_info = self.path_obstacle_emergency()
+        if emergency:
+            self.start_obstacle_recovery(lidar_info)
+            self.run_obstacle_recovery()
+            return
+
+        if distance < WAYPOINT_REACHED_RADIUS:
+            self.set_wheel_speeds(PATH_FORWARD_SPEED, PATH_FORWARD_SPEED)
+            return
+
+        abs_error = abs(angle_error)
+        turn = max(-PATH_TURN_SPEED, min(PATH_TURN_SPEED, angle_error * 1.4))
+
+        if abs_error > ANGLE_TOLERANCE:
+            forward_speed = PATH_MIN_FORWARD_SPEED
+
+            if abs_error < 1.0:
+                forward_speed = PATH_FORWARD_SPEED * 0.45
+
+            self.set_status_leds(True)
+        else:
+            forward_speed = PATH_FORWARD_SPEED
+            self.set_status_leds(False)
+
+        left_speed = forward_speed - turn
+        right_speed = forward_speed + turn
+
+        self.set_wheel_speeds(left_speed, right_speed)
+
+
+    def follow_path_exp1(self, path):
+        if not path or len(path) < 2:
+            self.stop()
+            return
+
+        if self.navigation_exp1 is None or self.known_map is None:
+            self.stop()
+            return
+
+        fallback_target = self.target_pos
+        if self.state == STATE_RETURNING_TO_BASE:
+            fallback_target = self.base_pos
+
+        if self.run_obstacle_recovery():
+            return
+
+        emergency, lidar_info = self.path_obstacle_emergency()
+        if emergency:
+            self.start_obstacle_recovery(lidar_info)
+            self.run_obstacle_recovery()
+            return
+
+        # impede overflow
+        if self.navigation_exp1.current_waypoint_index >= len(path):
+            self.stop()
+            return
+
+        waypoint = path[self.navigation_exp1.current_waypoint_index]
+        print(
+            "WAYPOINT:",
+            self.navigation_exp1.current_waypoint_index,
+            "CELL:",
+            waypoint
+        )
+        
+        waypoint_pos = self.known_map.grid_to_world(*waypoint)
+        robot_pos = self.get_robot_position()
+
+        if robot_pos is None or waypoint_pos is None:
+            self.stop()
+            return
+
+        dx = waypoint_pos[0] - robot_pos[0]
+        dy = waypoint_pos[1] - robot_pos[1]
+
+        dist = math.hypot(dx, dy)
+
+        if dist < WAYPOINT_REACHED_RADIUS:
+            self.navigation_exp1.current_waypoint_index += 1
+            self.stop()
+            return
+
+        angle = math.atan2(dy, dx)
+        heading = self.get_robot_heading()
+        error = self.normalize_angle(angle - heading)
+
+        if abs(error) > ANGLE_TOLERANCE:
+            if error > 0:
+                self.set_wheel_speeds(-1.5, 1.5)
+            else:
+                self.set_wheel_speeds(1.5, -1.5)
+            return
+
+        self.set_wheel_speeds(2.5, 2.5)
+
+    def empty_navigation_result(self):
+        return {
+            "path": [],
+            "path_length": 0,
+        }
+
+    def navigation_step_exp1(self):
+        if self.navigation_exp1 is None:
+            return self.empty_navigation_result()
+
+        if self.state == STATE_GOING_TO_TABLE:
+            return self.navigation_exp1.step(self.target_candidates)
+
+        if self.state == STATE_RETURNING_TO_BASE:
+            return self.navigation_exp1.step([self.base_pos])
+
+        return self.empty_navigation_result()
+
+    def navigation_step_exp2(self):
+        if self.navigation_exp2 is None:
+            return self.empty_navigation_result()
+
+        if self.state == STATE_GOING_TO_TABLE:
+            target_candidates = self.target_candidates[1:] or self.target_candidates
+            return self.navigation_exp2.step_to_candidates(target_candidates)
+        elif self.state == STATE_RETURNING_TO_BASE:
+            target_pos = self.base_pos
+        else:
+            target_pos = None
+
+        return self.navigation_exp2.step(target_pos)
+
+    def get_navigation_result(self):
+        if self.experiment_mode == EXP1_MODE:
+            return self.navigation_step_exp1()
+
+        if self.experiment_mode == EXP2_MODE:
+            return self.navigation_step_exp2()
+
+        raise ValueError(f"Unsupported experiment mode: {self.experiment_mode}")
+
+    def save_navigation_debug_image(self, nav_result):
+        if nav_result is None:
+            return
+
+        robot_pos = self.get_robot_position()
+        robot_cell = None
+        goal_cell = None
+
+        if self.experiment_mode == EXP1_MODE:
+            if self.known_map is None:
+                return
+
+            if robot_pos is not None:
+                robot_cell = self.known_map.world_to_grid(*robot_pos)
+
+            if self.target_pos is not None:
+                goal_cell = self.known_map.world_to_grid(*self.target_pos)
+
+            save_grid_png(
+                self.known_map.grid,
+                robot_pos=robot_cell,
+                goal_pos=goal_cell,
+                path=nav_result["path"],
+            )
+            return
+
+        if self.experiment_mode == EXP2_MODE:
+            if self.navigation_exp2 is None:
+                return
+
+            if robot_pos is not None:
+                robot_cell = self.navigation_exp2.world_to_grid(*robot_pos)
+
+            target_pos = nav_result.get("target_pos")
+            if target_pos is not None:
+                goal_cell = self.navigation_exp2.world_to_grid(*target_pos)
+
+            save_grid_png(
+                self.navigation_exp2.occupancy_grid,
+                robot_pos=robot_cell,
+                goal_pos=goal_cell,
+                path=nav_result["path"],
+            )
+
+
     def process_requests(self):
         if self.receiver is None:
             return
@@ -752,7 +1393,7 @@ class RestaurantEpuck:
                     print(f"[restaurant_epuck] invalid request timestamp ignored: {msg}")
                     requested_at = None
 
-            if table_id not in TABLES_1:
+            if table_id not in self.TABLES:
                 print(f"[restaurant_epuck] unknown table id ignored: {table_id}")
                 continue
 
@@ -786,55 +1427,6 @@ class RestaurantEpuck:
                 f"requested_at={requested_at:.2f} "
                 f"queue={self.request_queue}"
             )
-
-    def has_arrived(self, target_pos, radius):
-        current_pos = self.get_robot_position()
-
-        if current_pos is None or target_pos is None:
-            return False
-
-        dx = target_pos[0] - current_pos[0]
-        dy = target_pos[1] - current_pos[1]
-
-        return math.hypot(dx, dy) <= radius
-    
-
-    def distance_to_point(self, point):
-        current_pos = self.get_robot_position()
-
-        if current_pos is None or point is None:
-            return None
-
-        return math.hypot(
-            point[0] - current_pos[0],
-            point[1] - current_pos[1],
-        )
-    
-    
-    def distance_to_table_area(self, table_id):
-        current_pos = self.get_robot_position()
-
-        if current_pos is None or table_id not in TABLE_REACH_POINTS_1:
-            return None
-
-        robot_x, robot_y = current_pos
-
-        distances = [
-            math.hypot(point_x - robot_x, point_y - robot_y)
-            for point_x, point_y in TABLE_REACH_POINTS_1[table_id]
-        ]
-
-        return min(distances)
-    
-    
-    def has_reached_table_area(self, table_id):
-        distance = self.distance_to_table_area(table_id)
-
-        if distance is None:
-            return False
-
-        return distance <= self.nav_man.table_arrival_radius 
-
 
     def report_debug(self):
         now = self.robot.getTime()
@@ -925,10 +1517,10 @@ class RestaurantEpuck:
 
             self.metrics.update_distance(pos)
 
-            nav_result = self.nav_man.get_navigation_result()
+            nav_result = self.get_navigation_result()
 
-            if self.nav_man.detect_navigation_stuck():
-                self.nav_man.start_obstacle_recovery(
+            if self.detect_navigation_stuck():
+                self.start_obstacle_recovery(
                     self.lidar_navigation_info(),
                     total_time=STUCK_RECOVERY_TOTAL_TIME,
                     reason="stuck",
@@ -945,7 +1537,7 @@ class RestaurantEpuck:
                 if self.experiment_mode == EXP1_MODE:
 
                     if nav_result["path_length"] > 1:
-                        self.nav_man.follow_path_exp1(nav_result["path"])
+                        self.follow_path_exp1(nav_result["path"])
                     else:
                         self.stop()
 
@@ -955,7 +1547,7 @@ class RestaurantEpuck:
                     if nav_result["path_length"] > 1:
                         self.follow_path_step(nav_result["path"], fallback_target)
                     else:
-                        self.navigation_step()
+                        self.navigation_step(fallback_target)
 
                 if self.has_reached_table_area(self.target_id):
                     served_table = self.target_id
@@ -1003,7 +1595,7 @@ class RestaurantEpuck:
 
                     self.current_request_created_time = None
                     self.request_created_times.pop(completed_table, None)
-                    self.nav_man.reset_navigation_progress()
+                    self.reset_navigation_progress()
                     self.state = STATE_RETURNING_TO_BASE
 
                     print(f"[restaurant_epuck] returning to base from {completed_table}")
@@ -1012,17 +1604,17 @@ class RestaurantEpuck:
                 
                 if self.experiment_mode == EXP1_MODE:
                     if nav_result["path_length"] > 1:
-                        self.nav_man.follow_path_exp1(nav_result["path"])
+                        self.follow_path_exp1(nav_result["path"])
                     else:
                         self.stop()
 
                 else:
                     if nav_result["path_length"] > 1:
-                        self.na_man.follow_path_step(nav_result["path"], self.base_pos)
+                        self.follow_path_step(nav_result["path"], self.base_pos)
                     else:
-                        self.nav_man.navigation_step()
+                        self.navigation_step(self.base_pos)
 
-                if self.has_arrived(self.base_pos, self.nav_man.base_arrival_radius):
+                if self.has_arrived(self.base_pos, self.base_arrival_radius):
                     self.stop()
                     self.state = STATE_IDLE
 
@@ -1057,7 +1649,7 @@ class RestaurantEpuck:
                     self.target_pos = None
                     self.service_start_time = None
                     self.return_start_time = None
-                    self.nav_man.reset_navigation_progress()
+                    self.reset_navigation_progress()
 
                     if self.request_queue:
                         next_table = self.select_next_request()
@@ -1080,7 +1672,7 @@ class RestaurantEpuck:
             
             if self.robot.getTime() % 2 < 0.03:
 
-                self.nav_man.save_navigation_debug_image(nav_result)
+                self.save_navigation_debug_image(nav_result)
 
 
 if __name__ == "__main__":
