@@ -1,5 +1,5 @@
 from controller import Supervisor
-import math
+import math, os
 
 """Dynamic obstacles manager for the restaurant environment.
 
@@ -51,7 +51,8 @@ its LiDAR and proximity sensors.
 """
 
 TIME_STEP = 32
-DYNAMIC_ENVIRONMENT = True
+
+DYNAMIC_ENVIRONMENT = False
 
 SCENARIO_PERIOD = 95.0
 

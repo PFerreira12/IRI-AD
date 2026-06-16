@@ -5,14 +5,11 @@ Na EXP2, usa mapa incremental + A* quando existe caminho, e navegação reativa
 apenas como fallback/emergência.
 """
 
-import math, sys, os
+import math
+import os
 from controller import Supervisor, Receiver, Emitter
 from metrics import MetricsManager
 from map_utils import save_grid_png
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from dynamic_obstacles_manager.dynamic_obstacles_manager import DYNAMIC_ENVIRONMENT
-
 
 TIME_STEP = 32
 MAX_SPEED = 6.28
@@ -94,11 +91,10 @@ def env_float(name, default):
     except ValueError:
         print(f"[restaurant_epuck] invalid {name}={raw_value!r}; using {default}")
         return default
-    
+
 
 class RestaurantEpuck:
     def __init__(self):
-        
         self.robot = Supervisor()
         self.time_step = int(self.robot.getBasicTimeStep()) or TIME_STEP
         self.experiment_mode = EXPERIMENT_MODE
@@ -203,8 +199,10 @@ class RestaurantEpuck:
         self.request_queue = []
         self.request_created_times = {}
         self.current_request_created_time = None
+        self.total_requests = 0
+        self.completed_requests = 0
 
-
+        self.run_id = os.environ.get("SIM_RUN_ID", "manual")
         self.request_policy = os.environ.get("REQUEST_POLICY", POLICY_NEAREST).upper()
         if self.request_policy not in VALID_REQUEST_POLICIES:
             print(
@@ -240,29 +238,23 @@ class RestaurantEpuck:
         self.best_navigation_distance = None
         self.last_navigation_progress_time = None
 
-        self.in_safety_recovery = False
-
         self.known_map = None
         self.navigation_exp1 = None
         self.navigation_exp2 = None
         self.configure_experiment()
-
-        '''self.dynamic_environment = (
-            os.environ.get("DYNAMIC_ENVIRONMENT", "false")
-            .lower() == "true"
-        )'''
-
-        self.dynamic_environment = DYNAMIC_ENVIRONMENT
-
-        self.metrics = MetricsManager(
-            request_policy=self.request_policy,
-            experiment_mode=self.experiment_mode,
-            dynamic_env=self.dynamic_environment
-        )
-
         self._print_configuration_summary()
         self.calibrate_sensors()
 
+        self.mission_start_time = None
+        self.total_distance = 0.0
+        self.prev_pos = self.get_robot_position()
+        self.delivery_start_time = None
+        self.wait_times = []
+        self.delivery_times = []
+        self.return_start_time = None
+        self.return_times = []
+        self.near_collision_count = 0
+        self.in_safety_recovery = False
 
     def configure_experiment(self):
         if self.experiment_mode == EXP1_MODE:
@@ -329,7 +321,7 @@ class RestaurantEpuck:
         print(f"[restaurant_epuck] Experiment mode: {self.experiment_mode}")
         print(
             "[restaurant_epuck] request selection: "
-            f"run={self.metrics.simulation_id} "
+            f"run={self.run_id} "
             f"policy={self.request_policy} "
             f"hybrid_wait_weight={self.hybrid_wait_weight:.2f} "
             f"hybrid_distance_weight={self.hybrid_distance_weight:.2f}"
@@ -829,6 +821,26 @@ class RestaurantEpuck:
 
         return distance <= self.table_arrival_radius
     
+    def record_delivery_time(self, table_id, arrived_at):
+        
+        if self.delivery_start_time is None:
+            print(f"[METRIC delivery_time] table={table_id} unavailable")
+            return
+
+        delivery_time = max(0.0, arrived_at - self.delivery_start_time)
+        self.delivery_times.append(delivery_time)
+
+        avg_delivery = sum(self.delivery_times) / len(self.delivery_times)
+
+        print(
+            "[METRIC delivery_time] "
+            f"run={self.run_id} "
+            f"policy={self.request_policy} "
+            f"table={table_id} "
+            f"delivery={delivery_time:.2f}s "
+            f"avg={avg_delivery:.2f}s "
+            f"count={len(self.delivery_times)}"
+        )
 
     def notify_request_done(self, table_id):
         if table_id is None:
@@ -842,7 +854,6 @@ class RestaurantEpuck:
 
         self.emitter.send(msg.encode("utf-8"))
         print(f"[restaurant_epuck] sent: {msg}")
-
 
     def start_request(self, table_id, requested_at=None):
         if table_id not in self.TABLES:
@@ -858,8 +869,12 @@ class RestaurantEpuck:
         self.target_id = table_id
         self.current_request_created_time = requested_at
 
-        self.metrics.register_request()
-        self.metrics.start_mission(self.robot.getTime())
+        self.mission_start_time =self.robot.getTime()
+        self.delivery_start_time = self.mission_start_time
+
+        #resetar distância total por missão
+        self.total_distance = 0.0
+        self.prev_pos = self.get_robot_position()
 
         #self.target_pos = self.TABLES[table_id]
         self.target_candidates = self.TABLE_REACH_POINTS[table_id]
@@ -871,6 +886,7 @@ class RestaurantEpuck:
         print("[REQUEST DEBUG] target_pos chosen:", self.target_pos)
         
         self.state = STATE_GOING_TO_TABLE
+        self.total_requests += 1
 
         print(
             f"[restaurant_epuck] NEW REQUEST: {table_id} -> "
@@ -878,7 +894,6 @@ class RestaurantEpuck:
         )
 
         return True
-    
 
     def distance_to_request(self, table_id):
         current_pos = self.get_robot_position()
@@ -895,7 +910,6 @@ class RestaurantEpuck:
             math.hypot(point_x - current_x, point_y - current_y)
             for point_x, point_y in candidates
         )
-    
 
     def wait_for_request(self, table_id, now):
         requested_at = self.request_created_times.get(table_id)
@@ -903,7 +917,6 @@ class RestaurantEpuck:
             return 0.0
 
         return max(0.0, now - requested_at)
-    
 
     def select_next_request(self):
         if not self.request_queue:
@@ -954,6 +967,57 @@ class RestaurantEpuck:
 
         return table_id
 
+    def record_wait_time(self, table_id, served_at):
+        requested_at = self.current_request_created_time
+
+        if requested_at is None:
+            requested_at = self.request_created_times.get(table_id)
+
+        if requested_at is None:
+            print(f"[METRIC wait_time] table={table_id} unavailable")
+            return
+
+        wait_time = max(0.0, served_at - requested_at)
+        self.wait_times.append(wait_time)
+
+        average_wait = sum(self.wait_times) / len(self.wait_times)
+
+        print(
+            "[METRIC wait_time] "
+            f"run={self.run_id} "
+            f"policy={self.request_policy} "
+            f"table={table_id} "
+            f"requested_at={requested_at:.2f} "
+            f"served_at={served_at:.2f} "
+            f"wait={wait_time:.2f}s "
+            f"count={len(self.wait_times)} "
+            f"avg={average_wait:.2f}s "
+            f"max={max(self.wait_times):.2f}s"
+        )
+
+    def record_return_time(self, table_id, returned_at):
+        if self.return_start_time is None:
+            print(f"[METRIC return_time] table={table_id} unavailable")
+            return
+
+        return_time = max(0.0, returned_at - self.return_start_time)
+        self.return_times.append(return_time)
+
+        average_return = sum(self.return_times) / len(self.return_times)
+
+        print(
+            "[METRIC return_time] "
+            f"run={self.run_id} "
+            f"policy={self.request_policy} "
+            f"table={table_id} "
+            f"done_at={self.return_start_time:.2f} "
+            f"base_at={returned_at:.2f} "
+            f"return={return_time:.2f}s "
+            f"count={len(self.return_times)} "
+            f"avg={average_return:.2f}s "
+            f"max={max(self.return_times):.2f}s"
+        )
+    
 
     def navigation_step(self, target_pos):
         """Fallback reativo quando não há caminho A* utilizável."""
@@ -1046,7 +1110,7 @@ class RestaurantEpuck:
             return
         
         if not self.in_safety_recovery:
-            self.metrics.near_collision_count += 1
+            self.near_collision_count += 1
             self.in_safety_recovery = True
 
         left_space = 0.0
@@ -1515,7 +1579,14 @@ class RestaurantEpuck:
 
             pos = self.get_robot_position()
 
-            self.metrics.update_distance(pos)
+            if pos is not None and self.prev_pos is not None:
+                self.total_distance += math.hypot(
+                    pos[0] - self.prev_pos[0],
+                    pos[1] - self.prev_pos[1]
+                )
+
+            if pos is not None:
+                self.prev_pos = pos
 
             nav_result = self.get_navigation_result()
 
@@ -1555,20 +1626,8 @@ class RestaurantEpuck:
                     self.service_start_time = now
                     self.state = STATE_SERVING
 
-                    requested_at = self.request_created_times.get(served_table)
-
-                    self.metrics.record_wait_time(
-                        table_id=served_table,
-                        requested_at=requested_at,
-                        served_at=now
-                    )
-                    self.metrics.record_delivery_time(
-                        table_id=served_table,
-                        start_at=self.metrics.mission_start_time,
-                        arrived_at=now
-                    )
-
-                    self.metrics.register_completion()
+                    self.record_wait_time(served_table, now)
+                    self.record_delivery_time(served_table, now)
 
                     print(
                         f"[restaurant_epuck] arrived at service area for "
@@ -1586,13 +1645,11 @@ class RestaurantEpuck:
                     completed_table = self.target_id
 
                     self.notify_request_done(completed_table)
+                    self.return_start_time = now
 
                     self.last_served_id = completed_table
                     self.target_id = None
                     self.target_pos = self.base_pos
-
-                    self.return_start_time = now
-
                     self.current_request_created_time = None
                     self.request_created_times.pop(completed_table, None)
                     self.reset_navigation_progress()
@@ -1615,32 +1672,66 @@ class RestaurantEpuck:
                         self.navigation_step(self.base_pos)
 
                 if self.has_arrived(self.base_pos, self.base_arrival_radius):
+                    self.completed_requests += 1
                     self.stop()
-                    self.state = STATE_IDLE
 
                     print("[restaurant_epuck] arrived at base; ready for new requests")
                     
-                    self.metrics.record_return_time(
-                        table_id=self.last_served_id,
-                        start_at=self.return_start_time,
-                        returned_at=now
+                    self.record_return_time(self.last_served_id, now)
+                    success_rate = 0.0
+                    if self.total_requests > 0:
+                        success_rate = self.completed_requests / self.total_requests
+
+                    print(
+                        "[METRIC success_rate] "
+                        f"run={self.run_id} "
+                        f"policy={self.request_policy} "
+                        f"completed={self.completed_requests} "
+                        f"total={self.total_requests} "
+                        f"success_rate={success_rate:.2f}"
                     )
-                    
-                    self.metrics.print_success_rate()
+                                        
+                    if self.mission_start_time is not None:
+                        mission_time = now - self.mission_start_time
 
-                    if self.metrics.mission_start_time is not None:
-                        mission_time = now - self.metrics.mission_start_time
-                    else:
-                        mission_time = 0.0
+                        print(
+                            "[METRIC mission_time] "
+                            f"run={self.run_id} "
+                            f"policy={self.request_policy} "
+                            f"table={self.last_served_id} "
+                            f"mission={mission_time:.2f}s"
+                        )
 
-                    self.metrics.print_mission_metrics(mission_time)
+                        print(
+                            "[METRIC total_distance] "
+                            f"run={self.run_id} "
+                            f"policy={self.request_policy} "
+                            f"table={self.last_served_id} "
+                            f"distance={self.total_distance:.3f}"
+                        )
 
-                    self.metrics.save_results(
-                        last_table_id=self.last_served_id,
-                        mission_time=mission_time
-                    )
+                        print(
+                            "[METRIC safety_interventions] "
+                            f"run={self.run_id} "
+                            f"policy={self.request_policy} "
+                            f"count={self.near_collision_count}"
+                        )
 
-                    self.metrics.end_mission()
+                        avg_speed = 0.0
+                        if mission_time > 0:
+                            avg_speed = self.total_distance / mission_time
+
+
+                        print(
+                            "[METRIC avg_speed] "
+                            f"run={self.run_id} "
+                            f"policy={self.request_policy} "
+                            f"table={self.last_served_id} "
+                            f"speed={avg_speed:.3f}m/s"
+                        )
+                                            
+                    self.mission_start_time = None
+                    self.delivery_start_time = None
 
                     if self.experiment_mode == EXP2_MODE:
                         self.reset_estimated_pose_to_base()
@@ -1648,7 +1739,6 @@ class RestaurantEpuck:
                     self.target_id = None
                     self.target_pos = None
                     self.service_start_time = None
-                    self.return_start_time = None
                     self.reset_navigation_progress()
 
                     if self.request_queue:

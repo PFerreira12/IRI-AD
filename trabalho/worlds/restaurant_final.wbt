@@ -357,6 +357,7 @@ DEF TABLE_LAMP_6 PointLight {
   on FALSE
   radius 0.24
 }
+
 Robot {
   translation 0 0 -1
   children [
@@ -371,6 +372,7 @@ Robot {
   controller "requests_manager"
   supervisor TRUE
 }
+
 Robot {
   translation 0 0 -1
   name "dynamic_obstacles_robot"
@@ -448,9 +450,9 @@ E-puck {
   controller "restaurant_epuck"
   supervisor TRUE
   emitter_channel 2
+
   turretSlot [
-    Compass {
-    }
+    Compass {}
     Lidar {
       horizontalResolution 360
       fieldOfView 6.28
