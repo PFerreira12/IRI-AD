@@ -1,6 +1,16 @@
 from controller import Supervisor, Emitter, Receiver
 import os
 import random
+from pathlib import Path
+import sys
+
+CURRENT_DIR = Path(__file__).resolve().parent
+CONTROLLERS_DIR = CURRENT_DIR.parent
+COMMON_DIR = CONTROLLERS_DIR / "common"
+
+sys.path.insert(0, str(COMMON_DIR))
+
+from config_tables import get_map_config
 
 
 robot = Supervisor()
@@ -10,7 +20,8 @@ emitter: Emitter = robot.getDevice("emitter")
 receiver: Receiver = robot.getDevice("receiver")
 receiver.enable(timestep)
 
-TABLE_IDS = ["T1", "T2", "T3", "T4", "T5", "T6"]
+MAP_CONFIG = get_map_config()
+TABLE_IDS = MAP_CONFIG["table_ids"]
 LAMP_DEFS = {
     table_id: f"TABLE_LAMP_{index}"
     for index, table_id in enumerate(TABLE_IDS, start=1)
@@ -78,6 +89,7 @@ print(
 )
 print(
     "[MANAGER] simulation config "
+    f"map={MAP_CONFIG['id']} "
     f"run={RUN_ID} "
     f"policy={REQUEST_POLICY} "
     f"seed={RANDOM_SEED} "

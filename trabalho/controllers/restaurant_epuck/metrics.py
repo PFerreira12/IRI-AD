@@ -7,7 +7,8 @@ class MetricsManager:
         self,
         request_policy="FIFO",
         experiment_mode="EXP1",
-        dynamic_env=False
+        dynamic_env=False,
+        map_id="map1"
     ):
 
         self.metrics_dir = "metrics_results"
@@ -42,6 +43,7 @@ class MetricsManager:
         self.request_policy = request_policy
         self.experiment_mode = experiment_mode
         self.dynamic_env = dynamic_env
+        self.map_id = map_id
 
     # -------------------------
     # CORE LIFECYCLE
@@ -222,6 +224,7 @@ class MetricsManager:
         row = {
             "simulation_id": self.simulation_id,
             "experiment": self.experiment_mode,
+            "map_id": self.map_id,
             "dynamic_environment": self.dynamic_env,
             "policy": self.request_policy,
 

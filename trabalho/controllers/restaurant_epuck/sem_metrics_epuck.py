@@ -1,14 +1,15 @@
-"""Controller comum para o e-puck do restaurante.
+"""Common controller for the restaurant's e-puck.
 
-Este ficheiro gere pedidos, estados do robo, pose estimada e movimento.
-Na EXP2, usa mapa incremental + A* quando existe caminho, e navegação reativa
-apenas como fallback/emergência.
+This file manages orders, robot states, estimated pose, and movement.
+
+In EXP2, it uses incremental map + A* when a path exists, and reactive navigation only as a fallback/emergency.
 """
 
 import math, sys, os
 from controller import Supervisor, Receiver, Emitter
 from metrics import MetricsManager
 from map_utils import save_grid_png
+from config_tables import get_map_config
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from dynamic_obstacles_manager.dynamic_obstacles_manager import DYNAMIC_ENVIRONMENT
@@ -101,7 +102,7 @@ class RestaurantEpuck:
         
         self.robot = Supervisor()
         self.time_step = int(self.robot.getBasicTimeStep()) or TIME_STEP
-        self.experiment_mode = EXPERIMENT_MODE
+        self.experiment_mode = os.environ.get("EXPERIMENT_MODE", EXPERIMENT_MODE).upper()
 
         self.left_motor = self._required_device("left wheel motor")
         self.right_motor = self._required_device("right wheel motor")
@@ -134,64 +135,13 @@ class RestaurantEpuck:
         if self.emitter is not None:
             self.emitter.setChannel(DONE_CHANNEL)
 
-        self.TABLES = {
-            "T1": (-0.432, -0.312),
-            "T2": (-0.168, -0.120),
-            "T3": (-0.408, 0.204),
-            "T4": (0.396, -0.252),
-            "T5": (0.144, 0.084),
-            "T6": (0.432, 0.336),
-        }
-
-        self.TABLE_REACH_POINTS = {
-            "T1": [
-                (-0.432, -0.312),
-                (-0.432, -0.2136),
-                (-0.432, -0.4104),
-                (-0.3336, -0.312),
-                (-0.5304, -0.312),
-            ],
-            "T2": [
-                (-0.168, -0.120),
-                (-0.168, -0.0216),
-                (-0.168, -0.2184),
-                (-0.0696, -0.120),
-                (-0.2664, -0.120),
-            ],
-            "T3": [
-                (-0.408, 0.204),
-                (-0.408, 0.3024),
-                (-0.408, 0.1056),
-                (-0.3096, 0.204),
-                (-0.5064, 0.204),
-            ],
-            "T4": [
-                (0.396, -0.252),
-                (0.396, -0.1536),
-                (0.396, -0.3504),
-                (0.4944, -0.252),
-                (0.2976, -0.252),
-            ],
-            "T5": [
-                (0.144, 0.084),
-                (0.144, 0.1824),
-                (0.144, -0.0144),
-                (0.2424, 0.084),
-                (0.0456, 0.084),
-            ],
-            "T6": [
-                (0.432, 0.336),
-                (0.432, 0.4344),
-                (0.432, 0.2376),
-                (0.5304, 0.336),
-                (0.3336, 0.336),
-            ],
-        }
-
-        self.base_pos = (0.0, -0.39)
-
-        self.table_arrival_radius = 0.15
-        self.base_arrival_radius = 0.05 #0.02
+        self.map_config = get_map_config()
+        self.map_id = self.map_config["id"]
+        self.TABLES = self.map_config["tables"]
+        self.TABLE_REACH_POINTS = self.map_config["table_reach_points"]
+        self.base_pos = self.map_config["base_pos"]
+        self.table_arrival_radius = self.map_config.get("table_arrival_radius", 0.15)
+        self.base_arrival_radius = self.map_config.get("base_arrival_radius", 0.05)
 
         self.state = STATE_IDLE
         self.target_id = None
@@ -257,7 +207,8 @@ class RestaurantEpuck:
         self.metrics = MetricsManager(
             request_policy=self.request_policy,
             experiment_mode=self.experiment_mode,
-            dynamic_env=self.dynamic_environment
+            dynamic_env=self.dynamic_environment,
+            map_id=self.map_id
         )
 
         self._print_configuration_summary()
@@ -269,7 +220,7 @@ class RestaurantEpuck:
             from known_map import KnownMap
             from navigation_exp1 import NavigationExp1
 
-            self.known_map = KnownMap()
+            self.known_map = KnownMap(self.map_config)
             self.navigation_exp1 = NavigationExp1(self, self.known_map)
             return
 
@@ -327,6 +278,7 @@ class RestaurantEpuck:
             + (f", {enabled}" if enabled else "")
         )
         print(f"[restaurant_epuck] Experiment mode: {self.experiment_mode}")
+        print(f"[restaurant_epuck] Map selected: {self.map_id} ({self.map_config.get('name', 'unnamed map')})")
         print(
             "[restaurant_epuck] request selection: "
             f"run={self.metrics.simulation_id} "

@@ -6,6 +6,7 @@ class NavigationExp1:
 
     def __init__(self, manager, known_map):
         self.manager = manager
+        self.epuck = getattr(manager, "epuck", manager)
         self.map = known_map
 
         self.cached_target_pos = None
@@ -47,7 +48,7 @@ class NavigationExp1:
 
     def plan_path_to_target(self, target_candidates):
 
-        robot_pos = self.manager.epuck.get_robot_position()
+        robot_pos = self.epuck.get_robot_position()
 
         if robot_pos is None:
             return []

@@ -24,7 +24,7 @@ LIDAR_CAUTION_DISTANCE = 0.25
 PATH_EMERGENCY_LIDAR_DISTANCE = 0.11
 PATH_MIN_FORWARD_SPEED = 0.35
 
-WAYPOINT_LOOKAHEAD_INDEX = 4
+WAYPOINT_LOOKAHEAD_INDEX = 2
 WAYPOINT_REACHED_RADIUS = 0.04
 
 ANGLE_TOLERANCE = 0.25
@@ -72,7 +72,7 @@ class NavigationManager:
             from known_map import KnownMap
             from navigation_exp1 import NavigationExp1
 
-            self.known_map = KnownMap()
+            self.known_map = KnownMap(self.epuck.map_config)
             self.navigation_exp1 = NavigationExp1(self, self.known_map)
             return
 
@@ -249,7 +249,7 @@ class NavigationManager:
 
         if self.epuck.state == STATE_GOING_TO_TABLE:
             target_candidates = self.epuck.target_candidates[1:] or self.epuck.target_candidates
-            return self.navigation_exp2.epuck.step_to_candidates(target_candidates)
+            return self.navigation_exp2.step_to_candidates(target_candidates)
         elif self.epuck.state == STATE_RETURNING_TO_BASE:
             target_pos = self.epuck.base_pos
         else:

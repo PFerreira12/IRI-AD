@@ -25,8 +25,8 @@ DEFAULT_LIDAR_FOV = 6.28
 PATH_DEBUG_INTERVAL = 2.0
 
 # Margem de segurança em torno de obstáculos para o A*.
-# 2 células * 0.03 m = cerca de 6 cm.
-OBSTACLE_INFLATION_RADIUS = 2
+# 3 células * 0.03 m = cerca de 9 cm.
+OBSTACLE_INFLATION_RADIUS = 3
 
 PATH_REPLAN_INTERVAL = 2.0
 
@@ -34,6 +34,7 @@ PATH_REPLAN_INTERVAL = 2.0
 class NavigationExp2:
     def __init__(self, manager):
         self.manager = manager
+        self.epuck = getattr(manager, "epuck", manager)
 
         self.occupancy_grid = [
             [UNKNOWN for _ in range(MAP_WIDTH)]
@@ -115,9 +116,9 @@ class NavigationExp2:
 
     def get_safe_heading(self):
         try:
-            theta = self.manager.epuck.get_robot_heading()
+            theta = self.epuck.get_robot_heading()
         except Exception:
-            theta = getattr(self.manager.epuck, "estimated_theta", 0.0)
+            theta = getattr(self.epuck, "estimated_theta", 0.0)
 
         if not self.is_valid_number(theta):
             theta = 0.0
@@ -171,7 +172,7 @@ class NavigationExp2:
 
     def get_lidar_fov(self):
         try:
-            fov = self.manager.epuck.lidar.getFov()
+            fov = self.epuck.lidar.getFov()
         except Exception:
             fov = DEFAULT_LIDAR_FOV
 
@@ -183,7 +184,7 @@ class NavigationExp2:
     def update_map_from_lidar(self):
         robot_cell = self.mark_robot_cell_free()
 
-        if self.manager.epuck.lidar is None:
+        if self.epuck.lidar is None:
             return {
                 "source": "none",
                 "robot_cell": robot_cell,
@@ -193,7 +194,7 @@ class NavigationExp2:
                 "theta": self.get_safe_heading(),
             }
 
-        position = self.manager.epuck.get_robot_position()
+        position = self.epuck.get_robot_position()
         theta = self.get_safe_heading()
 
         if robot_cell is None or position is None:
@@ -218,7 +219,7 @@ class NavigationExp2:
                 "theta": theta,
             }
 
-        ranges = self.manager.epuck.lidar.getRangeImage()
+        ranges = self.epuck.lidar.getRangeImage()
         n = len(ranges)
 
         if n == 0:
@@ -432,8 +433,8 @@ class NavigationExp2:
     def print_path_debug(self, target_pos, path):
         now = 0.0
 
-        if hasattr(self.manager.epuck, "robot") and self.manager.epuck is not None:
-            now = self.manager.epuck.robot.getTime()
+        if hasattr(self.epuck, "robot") and self.epuck is not None:
+            now = self.epuck.robot.getTime()
 
         if now - self.last_path_debug_time < PATH_DEBUG_INTERVAL:
             return
@@ -463,8 +464,8 @@ class NavigationExp2:
         map_update = self.update()
 
         now = 0.0
-        if hasattr(self.manager.epuck, "robot") and self.manager.epuck is not None:
-            now = self.manager.epuck.robot.getTime()
+        if hasattr(self.epuck, "robot") and self.epuck is not None:
+            now = self.epuck.robot.getTime()
 
         should_replan = (
             now - self.last_path_plan_time >= PATH_REPLAN_INTERVAL
@@ -493,8 +494,8 @@ class NavigationExp2:
         target_key = tuple(target_candidates) if target_candidates else None
 
         now = 0.0
-        if hasattr(self.manager.epuck, "robot") and self.manager.epuck is not None:
-            now = self.manager.epuck.robot.getTime()
+        if hasattr(self.epuck, "robot") and self.epuck is not None:
+            now = self.epuck.robot.getTime()
 
         should_replan = (
             now - self.last_path_plan_time >= PATH_REPLAN_INTERVAL
@@ -522,8 +523,8 @@ class NavigationExp2:
     def print_map_summary(self):
         now = 0.0
 
-        if hasattr(self.manager.epuck, "robot") and self.manager.epuck is not None:
-            now = self.manager.epuck.robot.getTime()
+        if hasattr(self.epuck, "robot") and self.epuck is not None:
+            now = self.epuck.robot.getTime()
 
         if now - self.last_summary_time < 2.0:
             return
