@@ -636,6 +636,20 @@ class RestaurantEpuck:
 
         raise ValueError(f"Unsupported experiment mode: {self.experiment_mode}")
 
+    """def get_robot_position(self):
+        if self.experiment_mode == EXP1_MODE:
+            return self.get_ground_truth_position()
+
+        if self.experiment_mode == EXP2_MODE:
+            ground_truth = self.get_ground_truth_position()
+            if ground_truth is not None:
+                return ground_truth
+
+            return self.get_estimated_position()
+
+        raise ValueError(f"Unsupported experiment mode: {self.experiment_mode}")
+    """
+
     def get_ground_truth_position(self):
         try:
             node = self.robot.getSelf()
@@ -1528,7 +1542,15 @@ class RestaurantEpuck:
 
             nav_result = self.get_navigation_result()
 
-            if self.detect_navigation_stuck():
+            has_path = (
+                nav_result is not None
+                and nav_result.get("path_length", 0) > 1
+            )
+
+            if not has_path:
+                self.reset_navigation_progress()
+
+            elif self.detect_navigation_stuck():
                 self.start_obstacle_recovery(
                     self.lidar_navigation_info(),
                     total_time=STUCK_RECOVERY_TOTAL_TIME,
@@ -1542,6 +1564,21 @@ class RestaurantEpuck:
                 self.set_status_leds(False)
 
             elif self.state == STATE_GOING_TO_TABLE:
+
+                if self.has_reached_table_area(self.target_id):
+                    served_table = self.target_id
+                    self.stop()
+                    self.service_start_time = now
+                    self.state = STATE_SERVING
+
+                    self.record_wait_time(served_table, now)
+                    self.record_delivery_time(served_table, now)
+
+                    print(
+                        f"[restaurant_epuck] arrived at service area for "
+                        f"{served_table}; serving"
+                    )
+                    continue
 
                 if self.experiment_mode == EXP1_MODE:
 
