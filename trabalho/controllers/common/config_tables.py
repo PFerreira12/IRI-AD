@@ -13,7 +13,7 @@ import os
 from copy import deepcopy
 import os
 
-DEFAULT_MAP_ID = "map1"   # "map1" or "map2"
+DEFAULT_MAP_ID = "map2"   # "map1" or "map2"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -237,24 +237,57 @@ MAP2_CIRCLES = [
 ]
 
 MAP2_DYNAMIC_CIRCUITS = {
+    # Route along the upper free corridor.
+    # It stays below the top wall and avoids the upper tables/plants.
     "upper_corridor": [
-        (-0.10, 0.720),
-        (0.16, 0.720),
+        (-0.44, 0.720),
+        (-0.28, 0.720),
+        (-0.08, 0.720),
+        (0.14, 0.720),
+        (0.36, 0.720),
+        (0.46, 0.660),
+        (0.36, 0.600),
+        (0.14, 0.680),
+        (-0.08, 0.720),
+        (-0.28, 0.720),
     ],
 
+    # Route around the central dining area.
+    # It does not cross the central tables; it goes around them through the available side/top corridors.
     "central_passage": [
-        (0.10, 0.170),
-        (0.28, 0.170),
-        (0.28, 0.290),
-        (0.10, 0.290),
+        (-0.540, 0.230),
+        (-0.540, 0.360),
+        (-0.540, 0.510),
+        (-0.430, 0.670),
+        (-0.200, 0.720),
+        (0.060, 0.720),
+        (0.300, 0.700),
+        (0.470, 0.600),
+        (0.470, 0.430),
+        (0.470, 0.260),
+        (0.300, 0.210),
+        (0.080, 0.210),
     ],
 
+    # Route in the right/lower branch.
+    # It avoids the service counter, the lower tables and the right wall.
     "right_branch": [
-        (0.525, 0.300),
-        (0.525, 0.500),
+        (0.500, -0.220),
+        (0.420, -0.200),
+        (0.300, -0.180),
+        (0.300, -0.040),
+        (0.300, 0.130),
+        (0.390, 0.180),
+        (0.520, 0.200),
+        (0.520, 0.360),
+        (0.450, 0.500),
+        (0.330, 0.600),
+        (0.180, 0.650),
+        (0.080, 0.560),
+        (0.120, 0.400),
+        (0.250, 0.260),
     ],
 }
-
 # ---------------------------------------------------------------------------
 # Shared dynamic-obstacle timing and obstacle profiles
 # ---------------------------------------------------------------------------
