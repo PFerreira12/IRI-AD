@@ -68,8 +68,8 @@ class NavigationExp1:
             goal_cell = self.map.world_to_grid(*candidate)
             reachable_goal = self.nearest_free_cell(goal_cell)
 
-            print("\n[TRY GOAL]", candidate)
-            print("goal cell:", goal_cell, "reachable:", reachable_goal)
+            #print("\n[TRY GOAL]", candidate)
+            #print("goal cell:", goal_cell, "reachable:", reachable_goal)
 
             if reachable_goal is None:
                 continue

@@ -1,7 +1,7 @@
 import math
 from map_utils import save_grid_png
 
-#from restaurant_epuck import STATE_GOING_TO_TABLE, STATE_IDLE, STATE_RETURNING_TO_BASE, STATE_SERVING
+# from restaurant_epuck import STATE_GOING_TO_TABLE, STATE_IDLE, STATE_RETURNING_TO_BASE, STATE_SERVING
 
 EXP1_MODE = "EXP1"
 EXP2_MODE = "EXP2"
@@ -32,7 +32,6 @@ PATH_FORWARD_SPEED = 1.8
 PATH_TURN_SPEED = 1.2
 
 # Durante path following, só abandona o caminho se houver emergência real.
-
 PATH_HARD_MIN_LIDAR_DISTANCE = 0.07
 RECOVERY_BACKUP_TIME = 0.5
 RECOVERY_BACKUP_SPEED = -1.2
@@ -44,10 +43,10 @@ RECOVERY_TOTAL_TIME = 1
 STUCK_TIMEOUT = 6.0
 STUCK_MIN_PROGRESS = 0.01
 
+
 class NavigationManager:
 
     def __init__(self, epuck):
-        
         self.epuck = epuck
 
         self.known_map = None
@@ -62,28 +61,34 @@ class NavigationManager:
         self.last_navigation_progress_time = None
 
         self.in_safety_recovery = False
-        
-        self.table_arrival_radius = 0.15
-        self.base_arrival_radius = 0.05 #0.02
 
+        self.table_arrival_radius = 0.15
+        self.base_arrival_radius = 0.05  # 0.02
 
     def configure_experiment(self):
         if self.epuck.experiment_mode == EXP1_MODE:
             from known_map import KnownMap
             from navigation_exp1 import NavigationExp1
 
-            self.known_map = KnownMap(self.epuck.map_config)
-            self.navigation_exp1 = NavigationExp1(self, self.known_map)
+            # Compatível com as duas versões usadas no projeto:
+            # KnownMap() e KnownMap(map_config).
+            try:
+                self.known_map = KnownMap(self.epuck.map_config)
+            except TypeError:
+                self.known_map = KnownMap()
+
+            # O NavigationExp1 precisa do controlador/e-puck para obter posição e heading.
+            self.navigation_exp1 = NavigationExp1(self.epuck, self.known_map)
             return
 
         if self.epuck.experiment_mode == EXP2_MODE:
             from navigation_exp2 import NavigationExp2
 
-            self.navigation_exp2 = NavigationExp2(self)
+            # O NavigationExp2 também deve receber o e-puck/controlador, não o manager.
+            self.navigation_exp2 = NavigationExp2(self.epuck)
             return
 
         raise ValueError(f"Unsupported experiment mode: {self.epuck.experiment_mode}")
-
 
     def navigation_step(self):
         """Fallback reativo quando não há caminho A* utilizável."""
@@ -163,7 +168,6 @@ class NavigationManager:
         self.epuck.set_status_leds(False)
         self.epuck.set_wheel_speeds(CRUISE_SPEED, CRUISE_SPEED)
 
-
     def follow_path_exp1(self, path):
         if not path or len(path) < 2:
             self.epuck.stop()
@@ -192,13 +196,13 @@ class NavigationManager:
             return
 
         waypoint = path[self.navigation_exp1.current_waypoint_index]
-        print(
+        """print(
             "WAYPOINT:",
             self.navigation_exp1.current_waypoint_index,
             "CELL:",
             waypoint
         )
-        
+        """
         waypoint_pos = self.known_map.grid_to_world(*waypoint)
         robot_pos = self.epuck.get_robot_position()
 
@@ -228,7 +232,6 @@ class NavigationManager:
             return
 
         self.epuck.set_wheel_speeds(2.5, 2.5)
-    
 
     def navigation_step_exp1(self):
         if self.navigation_exp1 is None:
@@ -242,21 +245,18 @@ class NavigationManager:
 
         return self.empty_navigation_result()
 
-
     def navigation_step_exp2(self):
         if self.navigation_exp2 is None:
             return self.empty_navigation_result()
 
         if self.epuck.state == STATE_GOING_TO_TABLE:
-            target_candidates = self.epuck.target_candidates[1:] or self.epuck.target_candidates
-            return self.navigation_exp2.step_to_candidates(target_candidates)
+            return self.navigation_exp2.step_to_candidates(self.epuck.target_candidates)
         elif self.epuck.state == STATE_RETURNING_TO_BASE:
             target_pos = self.epuck.base_pos
         else:
             target_pos = None
 
         return self.navigation_exp2.step(target_pos)
-
 
     def get_navigation_result(self):
         if self.epuck.experiment_mode == EXP1_MODE:
@@ -266,7 +266,6 @@ class NavigationManager:
             return self.navigation_step_exp2()
 
         raise ValueError(f"Unsupported experiment mode: {self.epuck.experiment_mode}")
-
 
     def save_navigation_debug_image(self, nav_result):
         if nav_result is None:
@@ -312,7 +311,6 @@ class NavigationManager:
                 path=nav_result["path"],
             )
 
-
     def start_obstacle_recovery(
         self,
         lidar_info=None,
@@ -323,7 +321,7 @@ class NavigationManager:
 
         if now < self.obstacle_recovery_until:
             return
-        
+
         if not self.in_safety_recovery:
             self.epuck.metrics.near_collision_count += 1
             self.in_safety_recovery = True
@@ -360,7 +358,6 @@ class NavigationManager:
             f"duration={total_time:.2f}s"
         )
 
-
     def run_obstacle_recovery(self):
         now = self.epuck.robot.getTime()
 
@@ -384,12 +381,10 @@ class NavigationManager:
         self.epuck.set_wheel_speeds(-turn, turn)
         return True
 
-
     def path_obstacle_emergency(self):
-        
         left_front, right_front = self.epuck.front_obstacle_levels()
         calibrated_proximity = self.epuck.calibrated_proximity_values()
-        
+
         calibrated_left_front = max(
             calibrated_proximity[5],
             calibrated_proximity[6],
@@ -403,7 +398,7 @@ class NavigationManager:
 
         if max(left_front, right_front) > NAV_OBSTACLE_THRESHOLD:
             print(
-                f"[EMERGENCY] ps={max(left_front,right_front):.1f}"
+                f"[EMERGENCY] ps={max(left_front, right_front):.1f}"
             )
             return True, self.epuck.lidar_navigation_info()
 
@@ -429,8 +424,7 @@ class NavigationManager:
             return True, lidar_info
 
         return False, lidar_info
-    
-    
+
     def current_navigation_distance(self):
         if self.epuck.state == STATE_GOING_TO_TABLE and self.epuck.target_id is not None:
             return self.epuck.distance_to_table_area(self.epuck.target_id)
@@ -439,7 +433,6 @@ class NavigationManager:
             return self.epuck.distance_to_point(self.epuck.base_pos)
 
         return None
-
 
     def detect_navigation_stuck(self):
         if self.epuck.state not in (STATE_GOING_TO_TABLE, STATE_RETURNING_TO_BASE):
@@ -483,7 +476,6 @@ class NavigationManager:
         self.best_navigation_distance = distance
         self.last_navigation_progress_time = now
         return True
-
 
     def follow_path_step(self, path, fallback_target):
         if not path or len(path) < 2:
@@ -552,14 +544,12 @@ class NavigationManager:
 
         self.epuck.set_wheel_speeds(left_speed, right_speed)
 
-
     def empty_navigation_result(self):
         return {
             "path": [],
             "path_length": 0,
         }
-    
-    
+
     def invalidate_navigation_plan(self):
         if self.navigation_exp1 is not None:
             self.navigation_exp1.last_planned_path = []
@@ -571,7 +561,6 @@ class NavigationManager:
             self.navigation_exp2.cached_target_pos = None
             self.navigation_exp2.last_selected_target_pos = None
             self.navigation_exp2.last_path_plan_time = -999.0
-
 
     def reset_navigation_progress(self):
         self.best_navigation_distance = None

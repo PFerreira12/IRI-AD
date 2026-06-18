@@ -1,4 +1,12 @@
-import math
+import math, sys
+from pathlib import Path
+
+CURRENT_DIR = Path(__file__).resolve().parent
+CONTROLLERS_DIR = CURRENT_DIR.parent
+COMMON_DIR = CONTROLLERS_DIR / "common"
+
+sys.path.insert(0, str(COMMON_DIR))
+
 from config_tables import get_map_config
 
 FREE = 0

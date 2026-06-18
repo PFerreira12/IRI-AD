@@ -13,7 +13,7 @@ import os
 from copy import deepcopy
 import os
 
-DEFAULT_MAP_ID = "map1"   # "map1" or "map2"
+DEFAULT_MAP_ID = "map2"   # "map1" or "map2"
 
 # ---------------------------------------------------------------------------
 # Helpers
