@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$Webots = "webots",
+    [string]$MapId = "map1",
+    [string]$ExperimentMode = "EXP1",
+    [string]$DynamicEnvironment = "false",
     [string[]]$Policies = @("FIFO", "NEAREST", "HYBRID"),
     [int]$Runs = 5,
     [int]$SeedBase = 1000,
@@ -40,18 +43,35 @@ function Convert-StringList {
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Resolve-Path (Join-Path $scriptDir "..")
-$worldPath = Resolve-Path (Join-Path $projectDir "worlds\restaurant_final.wbt")
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $resultsRoot = Join-Path $scriptDir "results"
 $resultsDir = Join-Path $resultsRoot "policy_comparison_$timestamp"
+$metricsDir = Join-Path $resultsDir "metrics_results"
 New-Item -ItemType Directory -Force -Path $resultsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $metricsDir | Out-Null
+
+function Resolve-WorldPathForMap {
+    param([string]$SelectedMapId)
+
+    switch ($SelectedMapId.ToLowerInvariant()) {
+        "map1" { return (Resolve-Path (Join-Path $projectDir "worlds\restaurant_final.wbt")).Path }
+        "map2" { return (Resolve-Path (Join-Path $projectDir "worlds\restaurant_mapa2.wbt")).Path }
+        default { throw "Unsupported map id: $SelectedMapId" }
+    }
+}
+
+$worldPath = Resolve-WorldPathForMap -SelectedMapId $MapId
 
 $configPath = Join-Path $resultsDir "run_config.csv"
-"experiment_label,policy,repeat,run,seed,max_completed,max_sim_time,stop_delay,first_period,min_period,max_period,hybrid_wait_weight,hybrid_distance_weight,log" |
+"experiment_label,map_id,experiment_mode,dynamic_environment,policy,repeat,run,seed,max_completed,max_sim_time,stop_delay,first_period,min_period,max_period,hybrid_wait_weight,hybrid_distance_weight,world,log" |
     Set-Content -Path $configPath -Encoding UTF8
 
 $envNames = @(
     "SIM_RUN_ID",
+    "MAP_ID",
+    "RESTAURANT_MAP",
+    "EXPERIMENT_MODE",
+    "DYNAMIC_ENVIRONMENT",
     "REQUEST_POLICY",
     "RM_RANDOM_SEED",
     "RM_MAX_COMPLETED_REQUESTS",
@@ -61,7 +81,8 @@ $envNames = @(
     "RM_MIN_PERIOD_S",
     "RM_MAX_PERIOD_S",
     "HYBRID_WAIT_WEIGHT",
-    "HYBRID_DISTANCE_WEIGHT"
+    "HYBRID_DISTANCE_WEIGHT",
+    "METRICS_DIR"
 )
 
 $previousEnv = @{}
@@ -81,6 +102,10 @@ try {
             $experimentLabel = $normalizedPolicy
 
             $env:SIM_RUN_ID = $runId
+            $env:MAP_ID = $MapId
+            $env:RESTAURANT_MAP = $MapId
+            $env:EXPERIMENT_MODE = $ExperimentMode.ToUpperInvariant()
+            $env:DYNAMIC_ENVIRONMENT = $DynamicEnvironment.ToLowerInvariant()
             $env:REQUEST_POLICY = $normalizedPolicy
             $env:RM_RANDOM_SEED = [string]$seed
             $env:RM_MAX_COMPLETED_REQUESTS = [string]$MaxCompletedRequests
@@ -91,8 +116,9 @@ try {
             $env:RM_MAX_PERIOD_S = [string]$MaxPeriod
             $env:HYBRID_WAIT_WEIGHT = [string]$HybridWaitWeight
             $env:HYBRID_DISTANCE_WEIGHT = [string]$HybridDistanceWeight
+            $env:METRICS_DIR = $metricsDir
 
-            "$experimentLabel,$normalizedPolicy,$run,$runId,$seed,$MaxCompletedRequests,$MaxSimTime,$StopDelay,$FirstPeriod,$MinPeriod,$MaxPeriod,$HybridWaitWeight,$HybridDistanceWeight,$logName" |
+            "$experimentLabel,$MapId,$($ExperimentMode.ToUpperInvariant()),$($DynamicEnvironment.ToLowerInvariant()),$normalizedPolicy,$run,$runId,$seed,$MaxCompletedRequests,$MaxSimTime,$StopDelay,$FirstPeriod,$MinPeriod,$MaxPeriod,$HybridWaitWeight,$HybridDistanceWeight,$worldPath,$logName" |
                 Add-Content -Path $configPath -Encoding UTF8
 
             Write-Host "Running $runId with seed $seed..."
@@ -109,7 +135,7 @@ try {
                 $webotsArgs += "--no-rendering"
             }
 
-            $webotsArgs += $worldPath.Path
+            $webotsArgs += $worldPath
 
             & $Webots @webotsArgs *> $logPath
 

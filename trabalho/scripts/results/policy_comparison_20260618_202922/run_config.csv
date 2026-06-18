@@ -1,0 +1,10 @@
+﻿experiment_label,map_id,experiment_mode,dynamic_environment,policy,repeat,run,seed,max_completed,max_sim_time,stop_delay,first_period,min_period,max_period,hybrid_wait_weight,hybrid_distance_weight,world,log
+FIFO,map2,EXP1,false,FIFO,1,FIFO-1,1001,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,FIFO-1.log
+FIFO,map2,EXP1,false,FIFO,2,FIFO-2,1002,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,FIFO-2.log
+FIFO,map2,EXP1,false,FIFO,3,FIFO-3,1003,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,FIFO-3.log
+NEAREST,map2,EXP1,false,NEAREST,1,NEAREST-1,1001,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,NEAREST-1.log
+NEAREST,map2,EXP1,false,NEAREST,2,NEAREST-2,1002,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,NEAREST-2.log
+NEAREST,map2,EXP1,false,NEAREST,3,NEAREST-3,1003,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,NEAREST-3.log
+HYBRID,map2,EXP1,false,HYBRID,1,HYBRID-1,1001,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,HYBRID-1.log
+HYBRID,map2,EXP1,false,HYBRID,2,HYBRID-2,1002,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,HYBRID-2.log
+HYBRID,map2,EXP1,false,HYBRID,3,HYBRID-3,1003,10,420,5,5,25,35,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_mapa2.wbt,HYBRID-3.log

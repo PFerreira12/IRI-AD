@@ -1,0 +1,4 @@
+rank_by_fair_wait,rank_by_mean_wait,policy,experiment_label,hybrid_wait_weight,hybrid_distance_weight,max_wait_weight,fair_wait_objective,effective_wait_count,effective_wait_total,effective_wait_mean,effective_wait_max,wait_time_count,wait_time_total,wait_time_mean,wait_time_max,pending_wait_count,pending_wait_total,pending_wait_mean,pending_wait_max,total_time_mean,total_time_max,return_time_mean,return_time_max
+1,1,FIFO,FIFO,,,0.250,17.842,30,279.200,9.307,34.140,30,279.200,9.307,34.140,,,,,11.355,36.190,7.292,34.750
+2,2,HYBRID,HYBRID,1,30,0.250,17.842,30,279.200,9.307,34.140,30,279.200,9.307,34.140,,,,,11.355,36.190,7.292,34.750
+3,3,NEAREST,NEAREST,,,0.250,17.842,30,279.200,9.307,34.140,30,279.200,9.307,34.140,,,,,11.355,36.190,7.292,34.750

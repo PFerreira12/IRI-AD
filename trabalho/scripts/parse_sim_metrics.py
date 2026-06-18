@@ -10,11 +10,21 @@ KV_RE = re.compile(r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)=(?P<value>[^\s]+)")
 VALUE_FIELD_BY_METRIC = {
     "pending_wait": "pending_wait",
     "wait_time": "wait",
+    "delivery_time": "delivery",
     "return_time": "return",
     "total_time": "total",
 }
+METRIC_ALIASES = {
+    "wait": "wait_time",
+    "delivery": "delivery_time",
+    "return": "return_time",
+}
 CONFIG_FIELDS = [
     "experiment_label",
+    "map_id",
+    "experiment_mode",
+    "dynamic_environment",
+    "policy",
     "seed",
     "repeat",
     "max_completed",
@@ -51,7 +61,8 @@ def parse_metric_line(line):
     if match is None:
         return None
 
-    row = {"metric": match.group("metric")}
+    metric = match.group("metric")
+    row = {"metric": METRIC_ALIASES.get(metric, metric)}
     for kv_match in KV_RE.finditer(match.group("body")):
         row[kv_match.group("key")] = kv_match.group("value").rstrip(",")
 
