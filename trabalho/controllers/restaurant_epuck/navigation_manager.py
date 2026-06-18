@@ -76,9 +76,6 @@ class NavigationManager:
 
         self.in_safety_recovery = False
 
-        self.table_arrival_radius = getattr(epuck, "table_arrival_radius", 0.15)
-        self.base_arrival_radius = getattr(epuck, "base_arrival_radius", 0.05)
-
     def configure_experiment(self):
         if self.epuck.experiment_mode == EXP1_MODE:
             from known_map import KnownMap

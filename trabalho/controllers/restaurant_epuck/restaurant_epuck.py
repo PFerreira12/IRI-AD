@@ -897,7 +897,7 @@ class RestaurantEpuck:
         )
 
     def has_arrived_at_base(self):
-        radius = self.nav_man.base_arrival_radius
+        radius = self.base_arrival_radius
 
         if self.experiment_mode != EXP2_MODE:
             return self.has_arrived(self.base_pos, radius)
@@ -968,7 +968,7 @@ class RestaurantEpuck:
             if distance is None:
                 return False
 
-            return distance <= self.nav_man.table_arrival_radius
+            return distance <= self.table_arrival_radius
 
         ground_truth_pos = self.get_ground_truth_position()
         if ground_truth_pos is None:
@@ -977,7 +977,7 @@ class RestaurantEpuck:
             if distance is None:
                 return False
 
-            return distance <= self.nav_man.table_arrival_radius
+            return distance <= self.table_arrival_radius
 
         ground_truth_distance = self.distance_to_table_area(
             table_id,
@@ -986,7 +986,7 @@ class RestaurantEpuck:
 
         if (
             ground_truth_distance is not None
-            and ground_truth_distance <= self.nav_man.table_arrival_radius
+            and ground_truth_distance <= self.table_arrival_radius
         ):
             return True
 
@@ -997,7 +997,7 @@ class RestaurantEpuck:
 
         if (
             estimated_distance is not None
-            and estimated_distance <= self.nav_man.table_arrival_radius
+            and estimated_distance <= self.table_arrival_radius
         ):
             now = self.robot.getTime()
 
@@ -1262,7 +1262,7 @@ class RestaurantEpuck:
                             and not self.position_has_arrived(
                                 ground_truth_pos,
                                 self.base_pos,
-                                self.nav_man.base_arrival_radius,
+                                self.base_arrival_radius,
                             )
                         ):
                             self.nav_man.follow_direct_target_step(
