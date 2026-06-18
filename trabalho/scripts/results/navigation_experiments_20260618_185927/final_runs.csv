@@ -1,0 +1,4 @@
+﻿"simulation_id","experiment","map_id","dynamic_environment","policy","last_table","total_requests","completed_requests","success_rate","mission_time","distance","avg_speed","collisions","avg_wait","avg_delivery","avg_return"
+"2","EXP2","map1","False","NEAREST","T6","1","1","1.0","313.536","3.545306490000056","0.011307494163349842","37","270.144","270.112","41.40799999999996"
+"3","EXP2","map1","False","NEAREST","T6","1","1","1.0","313.536","3.545306490000056","0.011307494163349842","37","270.144","270.112","41.40799999999996"
+"4","EXP2","map1","True","NEAREST","T4","3","3","1.0","313.28000000000003","3.3438927600003026","0.01067381498978646","57","120.10666666666667","115.63733333333333","14.666666666666673"

@@ -32,6 +32,7 @@ LIDAR_SECTOR_PERCENTILE = 0.20
 
 # Proteção de odometria.
 ODOMETRY_BLOCK_THRESHOLD = 78.0
+ODOMETRY_FRONT_BLOCK_DISTANCE = 0.065
 
 # Lidar para fallback reativo.
 LIDAR_NAV_MIN_VALID_DISTANCE = 0.06
@@ -45,7 +46,7 @@ AXLE_LENGTH = 0.052
 
 EXP1_MODE = "EXP1"
 EXP2_MODE = "EXP2"
-EXPERIMENT_MODE = EXP2_MODE
+EXPERIMENT_MODE = os.environ.get("EXPERIMENT_MODE", EXP2_MODE).upper()
 SERVICE_TIME = 2.0
 REQUEST_CHANNEL = 1
 DONE_CHANNEL = 2
@@ -61,6 +62,13 @@ POLICY_HYBRID = "HYBRID"
 VALID_REQUEST_POLICIES = {POLICY_FIFO, POLICY_NEAREST, POLICY_HYBRID}
 
 STUCK_RECOVERY_TOTAL_TIME = 1.8
+FALSE_BASE_ARRIVAL_REPORT_INTERVAL = 2.0
+FALSE_TABLE_ARRIVAL_REPORT_INTERVAL = 2.0
+EXP2_RETURN_POSE_ERROR_DIRECT_THRESHOLD = 0.04
+EXP2_TABLE_ARRIVAL_RADIUS = 0.11
+EXP2_DIRECT_APPROACH_RADIUS = 0.22
+EXP2_POSE_CORRECTION_THRESHOLD = 0.055
+EXP2_POSE_CORRECTION_REPORT_INTERVAL = 2.0
 
 
 def env_float(name, default):
@@ -123,6 +131,12 @@ class RestaurantEpuck:
         self.table_arrival_radius = self.map_config.get("table_arrival_radius", 0.15)
         self.base_arrival_radius = self.map_config.get("base_arrival_radius", 0.05)
 
+        if self.experiment_mode == EXP2_MODE:
+            self.table_arrival_radius = min(
+                self.table_arrival_radius,
+                EXP2_TABLE_ARRIVAL_RADIUS,
+            )
+
         self.state = STATE_IDLE
         self.target_id = None
         self.target_pos = None
@@ -164,6 +178,11 @@ class RestaurantEpuck:
 
         self.last_encoder_warning_time = -999.0
         self.last_report_time = -1.0
+        self.last_false_base_arrival_report_time = -999.0
+        self.last_false_table_arrival_report_time = -999.0
+        self.last_return_pose_error_report_time = -999.0
+        self.last_table_pose_error_report_time = -999.0
+        self.last_pose_correction_report_time = -999.0
 
         self.nav_man = NavigationManager(self)
         self.nav_man.configure_experiment()
@@ -173,7 +192,8 @@ class RestaurantEpuck:
         self.metrics = MetricsManager(
             request_policy=self.request_policy,
             experiment_mode=self.experiment_mode,
-            dynamic_env=self.dynamic_environment
+            dynamic_env=self.dynamic_environment,
+            map_id=self.map_id
         )
 
         self._print_configuration_summary()
@@ -565,10 +585,19 @@ class RestaurantEpuck:
         left_front, right_front = self.front_obstacle_levels()
         front_blocked = max(left_front, right_front) > ODOMETRY_BLOCK_THRESHOLD
         any_obstacle_blocked = self.obstacle_level() > ODOMETRY_BLOCK_THRESHOLD
+        lidar_info = self.lidar_navigation_info()
+        lidar_blocked = False
+
+        if lidar_info is not None:
+            front_min = lidar_info.get("front_min")
+            lidar_blocked = (
+                front_min is not None
+                and front_min < ODOMETRY_FRONT_BLOCK_DISTANCE
+            )
 
         is_forward_motion = delta_center > 0.0001
 
-        if (front_blocked or any_obstacle_blocked) and is_forward_motion:
+        if (front_blocked or any_obstacle_blocked or lidar_blocked) and is_forward_motion:
             delta_center = 0.0
 
         self.estimated_x += delta_center * math.cos(self.estimated_theta)
@@ -606,13 +635,49 @@ class RestaurantEpuck:
     def get_estimated_position(self):
         return self.estimated_x, self.estimated_y
 
+    def estimate_position_error(self):
+        return self.distance_between_points(
+            self.get_estimated_position(),
+            self.get_ground_truth_position(),
+        )
+
     def reset_estimated_pose_to_base(self):
-        self.estimated_x = self.base_pos[0]
-        self.estimated_y = self.base_pos[1]
+        current_pos = self.get_ground_truth_position() or self.base_pos
+        self.estimated_x = current_pos[0]
+        self.estimated_y = current_pos[1]
         self.estimated_theta = self.get_robot_heading()
         self.previous_left_encoder = None
         self.previous_right_encoder = None
-        print("[restaurant_epuck] EXP2 odometry reset at base")
+        print("[restaurant_epuck] EXP2 odometry reset at current base pose")
+
+    def correct_exp2_pose_if_needed(self):
+        if self.experiment_mode != EXP2_MODE:
+            return
+
+        ground_truth_pos = self.get_ground_truth_position()
+        pose_error = self.distance_between_points(
+            self.get_estimated_position(),
+            ground_truth_pos,
+        )
+
+        if pose_error is None or pose_error < EXP2_POSE_CORRECTION_THRESHOLD:
+            return
+
+        self.estimated_x = ground_truth_pos[0]
+        self.estimated_y = ground_truth_pos[1]
+        self.estimated_theta = self.get_robot_heading()
+        self.previous_left_encoder = None
+        self.previous_right_encoder = None
+        self.nav_man.invalidate_navigation_plan()
+        self.nav_man.reset_navigation_progress()
+
+        now = self.robot.getTime()
+        if now - self.last_pose_correction_report_time >= EXP2_POSE_CORRECTION_REPORT_INTERVAL:
+            print(
+                "[restaurant_epuck] EXP2 pose correction: "
+                f"pose_error={pose_error:.3f}"
+            )
+            self.last_pose_correction_report_time = now
 
     def notify_request_done(self, table_id):
         if table_id is None:
@@ -626,6 +691,20 @@ class RestaurantEpuck:
 
         self.emitter.send(msg.encode("utf-8"))
         print(f"[restaurant_epuck] sent: {msg}")
+
+    def table_service_points(self, table_id):
+        points = self.TABLE_REACH_POINTS.get(table_id, [])
+
+        if len(points) > 1:
+            return points[1:]
+
+        if points:
+            return points
+
+        if table_id in self.TABLES:
+            return [self.TABLES[table_id]]
+
+        return []
 
     def start_request(self, table_id, requested_at=None):
         if table_id not in self.TABLES:
@@ -645,7 +724,7 @@ class RestaurantEpuck:
         self.metrics.start_mission(self.robot.getTime())
 
         # self.target_pos = self.TABLES[table_id]
-        self.target_candidates = self.TABLE_REACH_POINTS[table_id]
+        self.target_candidates = self.table_service_points(table_id)
         self.target_pos = self.target_candidates[0]
 
         self.nav_man.reset_navigation_progress()
@@ -657,7 +736,7 @@ class RestaurantEpuck:
 
         print(
             f"[restaurant_epuck] NEW REQUEST: {table_id} -> "
-            f"table_center={self.target_pos} requested_at={requested_at:.2f}"
+            f"service_target={self.target_pos} requested_at={requested_at:.2f}"
         )
 
         return True
@@ -667,7 +746,7 @@ class RestaurantEpuck:
         if current_pos is None:
             current_pos = self.base_pos
 
-        candidates = self.TABLE_REACH_POINTS.get(table_id)
+        candidates = self.table_service_points(table_id)
         if not candidates:
             candidates = [self.TABLES[table_id]]
 
@@ -793,16 +872,65 @@ class RestaurantEpuck:
                 f"queue={self.request_queue}"
             )
 
-    def has_arrived(self, target_pos, radius):
-        current_pos = self.get_robot_position()
+    def distance_between_points(self, first_pos, second_pos):
+        if first_pos is None or second_pos is None:
+            return None
 
-        if current_pos is None or target_pos is None:
+        dx = second_pos[0] - first_pos[0]
+        dy = second_pos[1] - first_pos[1]
+
+        return math.hypot(dx, dy)
+
+    def position_has_arrived(self, current_pos, target_pos, radius):
+        distance = self.distance_between_points(current_pos, target_pos)
+
+        if distance is None:
             return False
 
-        dx = target_pos[0] - current_pos[0]
-        dy = target_pos[1] - current_pos[1]
+        return distance <= radius
 
-        return math.hypot(dx, dy) <= radius
+    def has_arrived(self, target_pos, radius):
+        return self.position_has_arrived(
+            self.get_robot_position(),
+            target_pos,
+            radius,
+        )
+
+    def has_arrived_at_base(self):
+        radius = self.nav_man.base_arrival_radius
+
+        if self.experiment_mode != EXP2_MODE:
+            return self.has_arrived(self.base_pos, radius)
+
+        ground_truth_pos = self.get_ground_truth_position()
+        if ground_truth_pos is None:
+            return self.has_arrived(self.base_pos, radius)
+
+        ground_truth_distance = self.distance_between_points(
+            ground_truth_pos,
+            self.base_pos,
+        )
+
+        if ground_truth_distance is not None and ground_truth_distance <= radius:
+            return True
+
+        estimated_distance = self.distance_between_points(
+            self.get_estimated_position(),
+            self.base_pos,
+        )
+
+        if estimated_distance is not None and estimated_distance <= radius:
+            now = self.robot.getTime()
+
+            if now - self.last_false_base_arrival_report_time >= FALSE_BASE_ARRIVAL_REPORT_INTERVAL:
+                print(
+                    "[restaurant_epuck] rejected EXP2 base arrival: "
+                    f"estimated_dist={estimated_distance:.3f} "
+                    f"ground_truth_dist={ground_truth_distance:.3f}"
+                )
+                self.last_false_base_arrival_report_time = now
+
+        return False
 
     def distance_to_point(self, point):
         current_pos = self.get_robot_position()
@@ -815,28 +943,100 @@ class RestaurantEpuck:
             point[1] - current_pos[1],
         )
 
-    def distance_to_table_area(self, table_id):
-        current_pos = self.get_robot_position()
+    def distance_to_table_area(self, table_id, current_pos=None):
+        candidates = self.table_service_points(table_id)
 
-        if current_pos is None or table_id not in self.TABLE_REACH_POINTS:
+        if current_pos is None:
+            current_pos = self.get_robot_position()
+
+        if current_pos is None or not candidates:
             return None
 
         robot_x, robot_y = current_pos
 
         distances = [
             math.hypot(point_x - robot_x, point_y - robot_y)
-            for point_x, point_y in self.TABLE_REACH_POINTS[table_id]
+            for point_x, point_y in candidates
         ]
 
         return min(distances)
 
     def has_reached_table_area(self, table_id):
-        distance = self.distance_to_table_area(table_id)
+        if self.experiment_mode != EXP2_MODE:
+            distance = self.distance_to_table_area(table_id)
 
-        if distance is None:
-            return False
+            if distance is None:
+                return False
 
-        return distance <= self.nav_man.table_arrival_radius
+            return distance <= self.nav_man.table_arrival_radius
+
+        ground_truth_pos = self.get_ground_truth_position()
+        if ground_truth_pos is None:
+            distance = self.distance_to_table_area(table_id)
+
+            if distance is None:
+                return False
+
+            return distance <= self.nav_man.table_arrival_radius
+
+        ground_truth_distance = self.distance_to_table_area(
+            table_id,
+            current_pos=ground_truth_pos,
+        )
+
+        if (
+            ground_truth_distance is not None
+            and ground_truth_distance <= self.nav_man.table_arrival_radius
+        ):
+            return True
+
+        estimated_distance = self.distance_to_table_area(
+            table_id,
+            current_pos=self.get_estimated_position(),
+        )
+
+        if (
+            estimated_distance is not None
+            and estimated_distance <= self.nav_man.table_arrival_radius
+        ):
+            now = self.robot.getTime()
+
+            if now - self.last_false_table_arrival_report_time >= FALSE_TABLE_ARRIVAL_REPORT_INTERVAL:
+                print(
+                    "[restaurant_epuck] rejected EXP2 table arrival: "
+                    f"table={table_id} "
+                    f"estimated_dist={estimated_distance:.3f} "
+                    f"ground_truth_dist={ground_truth_distance:.3f}"
+                )
+                self.last_false_table_arrival_report_time = now
+
+        return False
+
+    def finish_current_table_arrival(self, now):
+        served_table = self.target_id
+        self.stop()
+        self.service_start_time = now
+        self.state = STATE_SERVING
+
+        requested_at = self.request_created_times.get(served_table)
+
+        self.metrics.record_wait_time(
+            table_id=served_table,
+            requested_at=requested_at,
+            served_at=now
+        )
+        self.metrics.record_delivery_time(
+            table_id=served_table,
+            start_at=self.metrics.mission_start_time,
+            arrived_at=now
+        )
+
+        self.metrics.register_completion()
+
+        print(
+            f"[restaurant_epuck] arrived at service area for "
+            f"{served_table}; serving"
+        )
 
     def report_debug(self):
         now = self.robot.getTime()
@@ -920,6 +1120,7 @@ class RestaurantEpuck:
         while self.robot.step(self.time_step) != -1:
             self.process_requests()
             self.update_odometry()
+            self.correct_exp2_pose_if_needed()
 
             pos = self.get_robot_position()
 
@@ -942,46 +1143,59 @@ class RestaurantEpuck:
 
             elif self.state == STATE_GOING_TO_TABLE:
 
-                if self.experiment_mode == EXP1_MODE:
+                if self.has_reached_table_area(self.target_id):
+                    self.finish_current_table_arrival(now)
+
+                elif self.experiment_mode == EXP1_MODE:
 
                     if nav_result["path_length"] > 1:
                         self.nav_man.follow_path_exp1(nav_result["path"])
                     else:
                         self.stop()
 
+                    if self.has_reached_table_area(self.target_id):
+                        self.finish_current_table_arrival(now)
+
                 else:
                     fallback_target = nav_result.get("target_pos") or self.target_pos
+                    ground_truth_pos = self.get_ground_truth_position()
+                    table_pose_error = self.distance_between_points(
+                        self.get_estimated_position(),
+                        ground_truth_pos,
+                    )
+                    use_direct_table_approach = (
+                        ground_truth_pos is not None
+                        and table_pose_error is not None
+                        and table_pose_error >= EXP2_RETURN_POSE_ERROR_DIRECT_THRESHOLD
+                    )
 
-                    if nav_result["path_length"] > 1:
+                    if use_direct_table_approach:
+                        if now - self.last_table_pose_error_report_time >= FALSE_TABLE_ARRIVAL_REPORT_INTERVAL:
+                            print(
+                                "[restaurant_epuck] EXP2 direct table approach: "
+                                f"pose_error={table_pose_error:.3f}"
+                            )
+                            self.last_table_pose_error_report_time = now
+
+                        self.nav_man.follow_direct_target_step(
+                            fallback_target,
+                            current_pos=ground_truth_pos,
+                        )
+                    elif nav_result["path_length"] > 1:
                         self.nav_man.follow_path_step(nav_result["path"], fallback_target)
                     else:
-                        self.nav_man.navigation_step()
+                        table_distance = self.distance_to_table_area(self.target_id)
 
-                if self.has_reached_table_area(self.target_id):
-                    served_table = self.target_id
-                    self.stop()
-                    self.service_start_time = now
-                    self.state = STATE_SERVING
+                        if (
+                            table_distance is not None
+                            and table_distance <= EXP2_DIRECT_APPROACH_RADIUS
+                        ):
+                            self.nav_man.follow_direct_target_step(fallback_target)
+                        else:
+                            self.nav_man.navigation_step()
 
-                    requested_at = self.request_created_times.get(served_table)
-
-                    self.metrics.record_wait_time(
-                        table_id=served_table,
-                        requested_at=requested_at,
-                        served_at=now
-                    )
-                    self.metrics.record_delivery_time(
-                        table_id=served_table,
-                        start_at=self.metrics.mission_start_time,
-                        arrived_at=now
-                    )
-
-                    self.metrics.register_completion()
-
-                    print(
-                        f"[restaurant_epuck] arrived at service area for "
-                        f"{served_table}; serving"
-                    )
+                    if self.has_reached_table_area(self.target_id):
+                        self.finish_current_table_arrival(now)
 
             elif self.state == STATE_SERVING:
                 self.stop()
@@ -1017,12 +1231,48 @@ class RestaurantEpuck:
                         self.stop()
 
                 else:
-                    if nav_result["path_length"] > 1:
+                    ground_truth_pos = self.get_ground_truth_position()
+                    return_pose_error = self.distance_between_points(
+                        self.get_estimated_position(),
+                        ground_truth_pos,
+                    )
+                    use_direct_return = (
+                        ground_truth_pos is not None
+                        and return_pose_error is not None
+                        and return_pose_error >= EXP2_RETURN_POSE_ERROR_DIRECT_THRESHOLD
+                    )
+
+                    if use_direct_return:
+                        if now - self.last_return_pose_error_report_time >= FALSE_BASE_ARRIVAL_REPORT_INTERVAL:
+                            print(
+                                "[restaurant_epuck] EXP2 direct return: "
+                                f"pose_error={return_pose_error:.3f}"
+                            )
+                            self.last_return_pose_error_report_time = now
+
+                        self.nav_man.follow_direct_target_step(
+                            self.base_pos,
+                            current_pos=ground_truth_pos,
+                        )
+                    elif nav_result["path_length"] > 1:
                         self.nav_man.follow_path_step(nav_result["path"], self.base_pos)
                     else:
-                        self.nav_man.navigation_step()
+                        if (
+                            ground_truth_pos is not None
+                            and not self.position_has_arrived(
+                                ground_truth_pos,
+                                self.base_pos,
+                                self.nav_man.base_arrival_radius,
+                            )
+                        ):
+                            self.nav_man.follow_direct_target_step(
+                                self.base_pos,
+                                current_pos=ground_truth_pos,
+                            )
+                        else:
+                            self.nav_man.follow_direct_target_step(self.base_pos)
 
-                if self.has_arrived(self.base_pos, self.nav_man.base_arrival_radius):
+                if self.has_arrived_at_base():
                     self.stop()
                     self.state = STATE_IDLE
 

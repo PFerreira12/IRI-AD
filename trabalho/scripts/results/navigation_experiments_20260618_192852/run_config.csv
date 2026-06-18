@@ -1,0 +1,7 @@
+﻿experiment_label,map_id,experiment_mode,dynamic_environment,policy,repeat,run,seed,max_completed,max_sim_time,stop_delay,first_period,min_period,max_period,hybrid_wait_weight,hybrid_distance_weight,world,log
+EXP2_STATIC,map1,EXP2,false,NEAREST,1,map1-EXP2_STATIC-1,8001,10,420,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_STATIC-1.log
+EXP2_STATIC,map1,EXP2,false,NEAREST,2,map1-EXP2_STATIC-2,8002,10,420,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_STATIC-2.log
+EXP2_STATIC,map1,EXP2,false,NEAREST,3,map1-EXP2_STATIC-3,8003,10,420,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_STATIC-3.log
+EXP2_DYNAMIC,map1,EXP2,true,NEAREST,1,map1-EXP2_DYNAMIC-1,8001,10,420,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_DYNAMIC-1.log
+EXP2_DYNAMIC,map1,EXP2,true,NEAREST,2,map1-EXP2_DYNAMIC-2,8002,10,420,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_DYNAMIC-2.log
+EXP2_DYNAMIC,map1,EXP2,true,NEAREST,3,map1-EXP2_DYNAMIC-3,8003,10,420,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_DYNAMIC-3.log

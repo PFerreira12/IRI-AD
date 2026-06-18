@@ -1,0 +1,2 @@
+﻿experiment_label,map_id,experiment_mode,dynamic_environment,policy,repeat,run,seed,max_completed,max_sim_time,stop_delay,first_period,min_period,max_period,hybrid_wait_weight,hybrid_distance_weight,world,log
+EXP2_DYNAMIC,map1,EXP2,true,NEAREST,1,map1-EXP2_DYNAMIC-1,7001,3,180,5,5,8,16,1,30,C:\Users\pavfe\OneDrive\Documentos\GitHub\IRI-AD\trabalho\worlds\restaurant_final.wbt,logs/map1-EXP2_DYNAMIC-1.log

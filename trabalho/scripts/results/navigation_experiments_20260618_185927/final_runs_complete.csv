@@ -1,0 +1,7 @@
+﻿"simulation_id","run","map_id","experiment","dynamic_environment","policy","last_table","total_requests","completed_requests","success_rate","mission_time","distance","avg_speed","collisions","avg_wait","avg_delivery","avg_return","log","result_source"
+"1","map1-EXP2_STATIC-1","map1","EXP2","False","NEAREST","","6","0","0","0","0","0","0","0","0","0","logs/map1-EXP2_STATIC-1.log","log_no_saved_results"
+"2","map1-EXP2_STATIC-2","map1","EXP2","False","NEAREST","T6","1","1","1.0","313.536","3.545306490000056","0.011307494163349842","37","270.144","270.112","41.40799999999996","logs/map1-EXP2_STATIC-2.log","metrics"
+"3","map1-EXP2_STATIC-3","map1","EXP2","False","NEAREST","T6","1","1","1.0","313.536","3.545306490000056","0.011307494163349842","37","270.144","270.112","41.40799999999996","logs/map1-EXP2_STATIC-3.log","metrics"
+"4","map1-EXP2_DYNAMIC-1","map1","EXP2","True","NEAREST","T4","3","3","1.0","313.28000000000003","3.3438927600003026","0.01067381498978646","57","120.10666666666667","115.63733333333333","14.666666666666673","logs/map1-EXP2_DYNAMIC-1.log","metrics"
+"5","map1-EXP2_DYNAMIC-2","map1","EXP2","True","NEAREST","","6","0","0","0","0","0","0","0","0","0","logs/map1-EXP2_DYNAMIC-2.log","log_no_saved_results"
+"6","map1-EXP2_DYNAMIC-3","map1","EXP2","True","NEAREST","","6","0","0","0","0","0","0","0","0","0","logs/map1-EXP2_DYNAMIC-3.log","log_no_saved_results"

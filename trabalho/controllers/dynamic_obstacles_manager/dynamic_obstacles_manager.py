@@ -52,7 +52,15 @@ its LiDAR and proximity sensors.
 
 TIME_STEP = 32
 
-DYNAMIC_ENVIRONMENT = False
+def env_bool(name, default):
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+
+    return raw_value.strip().lower() in ("1", "true", "yes", "on")
+
+
+DYNAMIC_ENVIRONMENT = env_bool("DYNAMIC_ENVIRONMENT", False)
 
 SCENARIO_PERIOD = 95.0
 

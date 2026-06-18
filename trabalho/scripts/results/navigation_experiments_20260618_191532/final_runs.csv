@@ -1,0 +1,2 @@
+﻿"simulation_id","experiment","map_id","dynamic_environment","policy","last_table","total_requests","completed_requests","success_rate","mission_time","distance","avg_speed","collisions","avg_wait","avg_delivery","avg_return"
+"1","EXP2","map1","False","NEAREST","T4","2","2","1.0","33.856","0.3693550600000094","0.010909589437618425","2","15.264","9.456","16.415999999999997"

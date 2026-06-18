@@ -43,9 +43,41 @@ def movement_cost(current, neighbor):
     return 1.0
 
 
-def is_walkable(grid, cell):
+def is_walkable(grid, cell, allow_unknown=False):
     row, col = cell
-    return grid[row][col] == FREE
+    return grid[row][col] == FREE or (
+        allow_unknown
+        and grid[row][col] == UNKNOWN
+    )
+
+
+def cell_cost(grid, cell, unknown_cost=3.0):
+    row, col = cell
+
+    if grid[row][col] == UNKNOWN:
+        return unknown_cost
+
+    return 1.0
+
+
+def can_move_between(grid, current, neighbor, allow_unknown=False):
+    if not is_walkable(grid, neighbor, allow_unknown):
+        return False
+
+    row_a, col_a = current
+    row_b, col_b = neighbor
+
+    if row_a != row_b and col_a != col_b:
+        adjacent_a = (row_a, col_b)
+        adjacent_b = (row_b, col_a)
+
+        if not is_walkable(grid, adjacent_a, allow_unknown):
+            return False
+
+        if not is_walkable(grid, adjacent_b, allow_unknown):
+            return False
+
+    return True
 
 
 def reconstruct_path(came_from, current):
@@ -59,7 +91,14 @@ def reconstruct_path(came_from, current):
     return path
 
 
-def astar_grid(grid, start, goal, allow_diagonal=True):
+def astar_grid(
+    grid,
+    start,
+    goal,
+    allow_diagonal=True,
+    allow_unknown=False,
+    unknown_cost=3.0,
+):
     rows = len(grid)
     cols = len(grid[0]) if rows > 0 else 0
 
@@ -75,10 +114,10 @@ def astar_grid(grid, start, goal, allow_diagonal=True):
     if not (0 <= goal_row < rows and 0 <= goal_col < cols):
         return []
 
-    if not is_walkable(grid, start):
+    if not is_walkable(grid, start, allow_unknown):
         return []
 
-    if not is_walkable(grid, goal):
+    if not is_walkable(grid, goal, allow_unknown):
         return []
 
     open_heap = []
@@ -103,10 +142,17 @@ def astar_grid(grid, start, goal, allow_diagonal=True):
             if neighbor in closed:
                 continue
 
-            if not is_walkable(grid, neighbor):
+            if not can_move_between(grid, current, neighbor, allow_unknown):
                 continue
 
-            tentative_g = g_score[current] + movement_cost(current, neighbor)
+            tentative_g = (
+                g_score[current]
+                + movement_cost(current, neighbor) * cell_cost(
+                    grid,
+                    neighbor,
+                    unknown_cost,
+                )
+            )
 
             if tentative_g < g_score.get(neighbor, math.inf):
                 came_from[neighbor] = current

@@ -11,7 +11,7 @@ class MetricsManager:
         map_id="map1"
     ):
 
-        self.metrics_dir = "metrics_results"
+        self.metrics_dir = os.environ.get("METRICS_DIR", "metrics_results")
         os.makedirs(self.metrics_dir, exist_ok=True)
 
         self.request_policy = request_policy

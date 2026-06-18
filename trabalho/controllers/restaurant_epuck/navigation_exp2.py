@@ -26,9 +26,11 @@ PATH_DEBUG_INTERVAL = 2.0
 
 # Margem de segurança em torno de obstáculos para o A*.
 # 3 células * 0.03 m = cerca de 9 cm.
-OBSTACLE_INFLATION_RADIUS = 3
+OBSTACLE_INFLATION_RADIUS = 2
+START_CLEARANCE_RADIUS = 1
 
 PATH_REPLAN_INTERVAL = 2.0
+UNKNOWN_TRAVERSAL_COST = 4.0
 
 
 class NavigationExp2:
@@ -88,7 +90,7 @@ class NavigationExp2:
         if self.is_inside_grid(row, col):
             self.occupancy_grid[row][col] = value
 
-    def mark_robot_cell_free(self):
+    def get_robot_cell(self):
         position = self.manager.epuck.get_robot_position()
 
         if position is None:
@@ -110,9 +112,18 @@ class NavigationExp2:
             )
             return None
 
+        return row, col
+
+    def mark_robot_cell_free(self):
+        robot_cell = self.get_robot_cell()
+
+        if robot_cell is None:
+            return None
+
+        row, col = robot_cell
         self.mark_cell(row, col, FREE)
 
-        return row, col
+        return robot_cell
 
     def get_safe_heading(self):
         try:
@@ -327,12 +338,47 @@ class NavigationExp2:
 
                         # Inflacao circular aproximada.
                         if d_row * d_row + d_col * d_col <= radius * radius:
-                            if planning_grid[n_row][n_col] == FREE:
+                            if planning_grid[n_row][n_col] != OCCUPIED:
                                 planning_grid[n_row][n_col] = OCCUPIED
 
         return planning_grid
 
-    def find_nearest_free_cell_in_grid(self, grid, center_cell, max_radius=10):
+    def clear_planning_neighbourhood(self, grid, center_cell, radius):
+        if center_cell is None:
+            return
+
+        center_row, center_col = center_cell
+
+        for d_row in range(-radius, radius + 1):
+            for d_col in range(-radius, radius + 1):
+                row = center_row + d_row
+                col = center_col + d_col
+
+                if not self.is_inside_grid(row, col):
+                    continue
+
+                if d_row * d_row + d_col * d_col <= radius * radius:
+                    grid[row][col] = FREE
+
+    def is_planning_cell_walkable(self, grid, cell, allow_unknown=True):
+        row, col = cell
+
+        if not self.is_inside_grid(row, col):
+            return False
+
+        if grid[row][col] == FREE:
+            return True
+
+        return allow_unknown and grid[row][col] == UNKNOWN
+
+    def find_nearest_free_cell_in_grid(
+        self,
+        grid,
+        center_cell,
+        max_radius=10,
+        allow_unknown=True,
+        forbidden_cells=None,
+    ):
         if center_cell is None:
             return None
 
@@ -341,8 +387,17 @@ class NavigationExp2:
         if not self.is_inside_grid(center_row, center_col):
             return None
 
-        if grid[center_row][center_col] == FREE:
+        if forbidden_cells is None:
+            forbidden_cells = set()
+
+        if self.is_planning_cell_walkable(
+            grid,
+            center_cell,
+            allow_unknown=allow_unknown,
+        ) and center_cell not in forbidden_cells:
             return center_cell
+
+        best_unknown = None
 
         for radius in range(1, max_radius + 1):
             for row in range(center_row - radius, center_row + radius + 1):
@@ -350,8 +405,17 @@ class NavigationExp2:
                     if not self.is_inside_grid(row, col):
                         continue
 
+                    if (row, col) in forbidden_cells:
+                        continue
+
                     if grid[row][col] == FREE:
                         return row, col
+
+                    if allow_unknown and best_unknown is None and grid[row][col] == UNKNOWN:
+                        best_unknown = (row, col)
+
+            if best_unknown is not None:
+                return best_unknown
 
         return None
 
@@ -360,7 +424,7 @@ class NavigationExp2:
             self.last_planned_path = []
             return []
 
-        start_cell = self.mark_robot_cell_free()
+        start_cell = self.get_robot_cell()
         goal_cell = self.world_to_grid(target_pos[0], target_pos[1])
 
         if start_cell is None or goal_cell is None:
@@ -375,13 +439,22 @@ class NavigationExp2:
 
         # A célula atual do robô deve continuar navegável,
         # mesmo que esteja próxima de um obstáculo inflado.
-        start_row, start_col = start_cell
-        planning_grid[start_row][start_col] = FREE
+        self.clear_planning_neighbourhood(
+            planning_grid,
+            start_cell,
+            START_CLEARANCE_RADIUS,
+        )
+        forbidden_goal_cells = set()
+
+        if start_cell != goal_cell:
+            forbidden_goal_cells.add(start_cell)
 
         reachable_goal = self.find_nearest_free_cell_in_grid(
             planning_grid,
             goal_cell,
             max_radius=12,
+            allow_unknown=True,
+            forbidden_cells=forbidden_goal_cells,
         )
 
         if reachable_goal is None:
@@ -393,6 +466,8 @@ class NavigationExp2:
             start_cell,
             reachable_goal,
             allow_diagonal=True,
+            allow_unknown=True,
+            unknown_cost=UNKNOWN_TRAVERSAL_COST,
         )
 
         self.last_planned_path = path
@@ -430,6 +505,45 @@ class NavigationExp2:
 
         return best_target, best_path
 
+    def trim_path_to_robot(self, path):
+        if not path or len(path) < 2:
+            return path
+
+        robot_cell = self.get_robot_cell()
+        if robot_cell is None:
+            return path
+
+        robot_row, robot_col = robot_cell
+
+        closest_index = min(
+            range(len(path)),
+            key=lambda index: (
+                abs(path[index][0] - robot_row)
+                + abs(path[index][1] - robot_col)
+            ),
+        )
+
+        trimmed_path = path[closest_index:]
+
+        if len(trimmed_path) < 2:
+            return path[-2:]
+
+        return trimmed_path
+
+    def keep_previous_path_if_replan_failed(self, path, previous_path):
+        if path or not previous_path:
+            return path
+
+        kept_path = self.trim_path_to_robot(previous_path)
+        self.last_planned_path = kept_path
+
+        print(
+            "[navigation_exp2] replan failed; keeping previous path "
+            f"path_length={len(kept_path)}"
+        )
+
+        return kept_path
+
     def print_path_debug(self, target_pos, path):
         now = 0.0
 
@@ -439,7 +553,7 @@ class NavigationExp2:
         if now - self.last_path_debug_time < PATH_DEBUG_INTERVAL:
             return
 
-        start_cell = self.mark_robot_cell_free()
+        start_cell = self.get_robot_cell()
         goal_cell = None
 
         if target_pos is not None:
@@ -474,7 +588,13 @@ class NavigationExp2:
         )
 
         if should_replan:
+            previous_path = (
+                list(self.last_planned_path)
+                if target_pos == self.cached_target_pos
+                else []
+            )
             path = self.plan_path_to_target(target_pos)
+            path = self.keep_previous_path_if_replan_failed(path, previous_path)
             self.cached_target_pos = target_pos
             self.last_path_plan_time = now
         else:
@@ -504,7 +624,19 @@ class NavigationExp2:
         )
 
         if should_replan:
+            previous_path = (
+                list(self.last_planned_path)
+                if target_key == self.cached_target_pos
+                else []
+            )
+            previous_target = self.last_selected_target_pos
             selected_target, path = self.plan_path_to_candidates(target_candidates)
+            path = self.keep_previous_path_if_replan_failed(path, previous_path)
+
+            if path and selected_target is None:
+                selected_target = previous_target
+                self.last_selected_target_pos = selected_target
+
             self.cached_target_pos = target_key
             self.last_path_plan_time = now
         else:
@@ -553,7 +685,7 @@ class NavigationExp2:
         self.last_summary_time = now
 
     def print_local_map(self, radius=8):
-        robot_cell = self.mark_robot_cell_free()
+        robot_cell = self.get_robot_cell()
 
         if robot_cell is None:
             print("[navigation_exp2] cannot print local map: robot cell unavailable")

@@ -13,7 +13,7 @@ import os
 from copy import deepcopy
 import os
 
-DEFAULT_MAP_ID = "map2"   # "map1" or "map2"
+DEFAULT_MAP_ID = "map1"   # "map1" or "map2"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -76,7 +76,15 @@ TABLES_1 = {
     "T6": (0.432, 0.336),
 }
 
-TABLE_REACH_POINTS_1 = _reach_points_from_tables(TABLES_1)
+TABLE_REACH_POINTS_1 = _reach_points_from_tables(TABLES_1, offset=0.17)
+
+MAP1_CHAIR_SIZE = 0.0504
+MAP1_CHAIR_POINTS = _reach_points_from_tables(TABLES_1, offset=0.0984)
+MAP1_CHAIR_RECTS = [
+    (x, y, MAP1_CHAIR_SIZE, MAP1_CHAIR_SIZE)
+    for points in MAP1_CHAIR_POINTS.values()
+    for x, y in points[1:]
+]
 
 MAP1_RECTS = [
     # tables
@@ -86,6 +94,8 @@ MAP1_RECTS = [
     (0.396, -0.252, 0.126, 0.126),
     (0.144, 0.084, 0.126, 0.126),
     (0.432, 0.336, 0.126, 0.126),
+    # chairs
+    *MAP1_CHAIR_RECTS,
     # counter / robot base
     (0.0, -0.486, 0.384, 0.066),
 ]
@@ -157,10 +167,43 @@ TABLES_2 = {
     "T3": (-0.420, 0.312),
     "T4": (-0.030, 0.336),
     "T5": (0.301, 0.522),
-    "T6": (-0.240, 0.600),
+    "T6": (-0.240, 0.630),
 }
 
 TABLE_REACH_POINTS_2 = _reach_points_from_tables(TABLES_2, offset=0.14)
+
+MAP2_CHAIR_SEATS = [
+    (0.454, 0.177), (0.454, -0.011), (0.548, 0.083), (0.360, 0.083),
+    (0.090, 0.041), (0.090, -0.147), (0.184, -0.053), (-0.004, -0.053),
+    (-0.420, 0.406), (-0.420, 0.218), (-0.326, 0.312), (-0.514, 0.312),
+    (-0.030, 0.430), (-0.030, 0.242), (0.064, 0.336), (-0.124, 0.336),
+    (0.301, 0.616), (0.301, 0.428), (0.395, 0.522), (0.207, 0.522),
+    (-0.240, 0.694), (-0.240, 0.530), (-0.146, 0.630), (-0.334, 0.630),
+]
+
+MAP2_CHAIR_BACKS_HORIZONTAL = [
+    (0.454, 0.200), (0.454, -0.034),
+    (0.090, 0.064), (0.090, -0.170),
+    (-0.420, 0.429), (-0.420, 0.195),
+    (-0.030, 0.453), (-0.030, 0.219),
+    (0.301, 0.639), (0.301, 0.405),
+    (-0.240, 0.717), (-0.240, 0.510),
+]
+
+MAP2_CHAIR_BACKS_VERTICAL = [
+    (0.571, 0.083), (0.337, 0.083),
+    (0.207, -0.053), (-0.027, -0.053),
+    (-0.303, 0.312), (-0.537, 0.312),
+    (0.087, 0.336), (-0.147, 0.336),
+    (0.418, 0.522), (0.184, 0.522),
+    (-0.123, 0.630), (-0.357, 0.630),
+]
+
+MAP2_CHAIR_RECTS = [
+    *[(x, y, 0.048, 0.048) for x, y in MAP2_CHAIR_SEATS],
+    *[(x, y, 0.048, 0.008) for x, y in MAP2_CHAIR_BACKS_HORIZONTAL],
+    *[(x, y, 0.008, 0.048) for x, y in MAP2_CHAIR_BACKS_VERTICAL],
+]
 
 MAP2_RECTS = [
     # external and internal walls — synced with restaurant_mapa2.wbt
@@ -177,7 +220,10 @@ MAP2_RECTS = [
     (-0.420, 0.312, 0.126, 0.126),
     (-0.030, 0.336, 0.126, 0.126),
     (0.301, 0.522, 0.126, 0.126),
-    (-0.240, 0.600, 0.126, 0.126),
+    (-0.240, 0.630, 0.126, 0.126),
+
+    # chairs
+    *MAP2_CHAIR_RECTS,
 
     # counter / robot base
     (0.300, -0.306, 0.336, 0.066),
